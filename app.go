@@ -51,7 +51,7 @@ type prefs struct {
 }
 
 const (
-	defaultSidebar = 268
+	defaultSidebar = 300
 	minSidebar     = 200
 	maxSidebar     = 440
 	defaultFont    = 13
@@ -470,14 +470,15 @@ func (a *App) groups() []group {
 }
 
 // visibleOrder returns the sessions in the sidebar's order, those of
-// collapsed projects left out unless selected.
+// collapsed projects left out.
 func (a *App) visibleOrder() []string {
 	var ids []string
 	for _, g := range a.groups() {
+		if a.prefs.Collapsed[g.project.ID] {
+			continue
+		}
 		for _, s := range g.sessions {
-			if !a.prefs.Collapsed[g.project.ID] || s.ID == a.selected {
-				ids = append(ids, s.ID)
-			}
+			ids = append(ids, s.ID)
 		}
 	}
 	return ids
@@ -1088,10 +1089,13 @@ func (a *App) selectOffset(d int) {
 		return
 	}
 	i := slices.Index(ids, a.selected)
-	if i < 0 {
-		i = 0
-	} else {
+	switch {
+	case i >= 0:
 		i = (i + d + len(ids)) % len(ids)
+	case d > 0:
+		i = 0
+	default:
+		i = len(ids) - 1
 	}
 	a.selectSession(ids[i])
 }

@@ -23,6 +23,8 @@ A **session** is a unit of work: one task, one agent, one long-running process. 
 
 Name sessions after their task, such as `fix-login-redirect` or `review-pr-42`, so you can find them in the sidebar and target them from the [CLI](./cli.md).
 
+Each row shows the agent or program, the session's status, and below it the agent's latest report (`kero report`), or the folder the session runs in when that is not its project's. A project's header shows the branch its sessions share.
+
 ### Where a new session starts
 
 The `new-session-directory` setting picks the folder:
