@@ -71,6 +71,10 @@ type pane struct {
 	changed  chan struct{} // closed and replaced on every status change
 	// framing tells that frames for the clients are due, after output.
 	framing bool
+	// groupDir is the folder the pane moved to, as its shell cd'd or its
+	// agent started, whose project the session joins: tickLoop takes it,
+	// outside this pane's lock.
+	groupDir string
 }
 
 // headless connects the daemon's emulator to the program: it reads
@@ -318,6 +322,7 @@ func (s *pane) tick(now time.Time) bool {
 			proc = agent
 		}
 	}
+	agentStarted := agent != "" && agent != s.info.Agent
 	if proc == "" && s.info.Process != "" {
 		// The program ended: its live reports go with it, and an agent's
 		// session is no more to resume.
@@ -338,16 +343,19 @@ func (s *pane) tick(now time.Time) bool {
 		s.seen, s.looked = "", false
 		changed = true
 	}
-	if now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
+	// The shell's folder, every tick, so that a cd groups the session at
+	// once rather than at the shell's next turn.
+	moved := false
+	if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
+		s.info.Dir = dir
+		changed, moved = true, true
+		s.d.save()
+		s.d.git.poke(dir)
+	}
+	// The program's own, from its group's leader, as an agent's that went
+	// into a worktree: the shell under it stays where it was.
+	if agentStarted || now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
 		s.cwdAt = now
-		if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
-			s.info.Dir = dir
-			changed = true
-			s.d.save()
-			s.d.git.poke(dir)
-		}
-		// The program's own, from its group's leader, as an agent's that
-		// went into a worktree: the shell under it stays where it was.
 		pdir := ""
 		if proc != "" {
 			pdir = procCwd(pg)
@@ -361,10 +369,24 @@ func (s *pane) tick(now time.Time) bool {
 			s.d.git.poke(s.info.WorkDir())
 		}
 	}
+	if moved || agentStarted {
+		s.groupDir = s.info.WorkDir()
+	}
 	if s.look(now) {
 		changed = true
 	}
 	return changed
+}
+
+// takeGroupDir returns the folder the pane moved to, whose project the
+// session joins, and clears it: tickLoop moves the session, as the
+// daemon's lock comes after the pane's.
+func (s *pane) takeGroupDir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dir := s.groupDir
+	s.groupDir = ""
+	return dir
 }
 
 // look sets the status from what the screen shows, when it may have

@@ -225,6 +225,11 @@ func (d *Daemon) tickLoop() {
 			if s.tick(now) {
 				changed = true
 			}
+			// An agent's folder groups its session, as the user would
+			// move it by hand; do it outside the pane's lock.
+			if dir := s.takeGroupDir(); d.regroup(s.sid, dir) {
+				changed = true
+			}
 		}
 		if changed {
 			d.changed()
@@ -248,9 +253,9 @@ func newID() string {
 	return string(b[:])
 }
 
-// projectFor returns the project a new session goes in: the one named, or
-// the one whose directory holds dir, or a new one for dir's repository.
-// d.mu is held.
+// projectFor returns the project a new session goes in: the one named;
+// else the one of the repository dir is in, or the most specific project
+// whose folder holds dir; else a new one for it. d.mu is held.
 func (d *Daemon) projectFor(ref, dir string) string {
 	if ref != "" {
 		for _, p := range d.projects {
@@ -268,23 +273,57 @@ func (d *Daemon) projectFor(ref, dir string) string {
 		}
 		dir = proto.Home()
 	}
+	if id, _ := d.projectAt(dir); id != "" {
+		return id
+	}
+	return d.newProject(repoRoot(dir))
+}
+
+// projectAt returns the project dir belongs to, without making one, and
+// whether dir is in a repository. d.mu is held.
+func (d *Daemon) projectAt(dir string) (string, bool) {
+	root := repoRoot(dir)
+	// A repository sets the project, not a folder that holds it: the
+	// home folder holds every repository under it, and takes none.
+	if root != dir || isRepo(dir) {
+		return d.projectUnder(root, root != proto.Home()), true
+	}
+	return d.projectUnder(dir, false), false
+}
+
+// projectUnder returns the most specific project whose folder holds dir,
+// leaving out a project at the home folder when skipHome is set. d.mu is
+// held.
+func (d *Daemon) projectUnder(dir string, skipHome bool) string {
 	best, bestLen := "", -1
 	for _, p := range d.projects {
-		if p.Dir != "" && proto.Within(dir, p.Dir) && len(p.Dir) > bestLen {
+		if p.Dir == "" || skipHome && p.Dir == proto.Home() || !proto.Within(dir, p.Dir) {
+			continue
+		}
+		if len(p.Dir) > bestLen {
 			best, bestLen = p.ID, len(p.Dir)
 		}
 	}
-	if best != "" {
-		return best
-	}
-	root := repoRoot(dir)
-	name := filepath.Base(root)
-	if root == proto.Home() {
+	return best
+}
+
+// newProject makes a project for dir, named after it or as Home. d.mu is
+// held.
+func (d *Daemon) newProject(dir string) string {
+	name := filepath.Base(dir)
+	if dir == proto.Home() {
 		name = "Home"
 	}
-	p := proto.Project{ID: newID(), Name: name, Dir: root}
+	p := proto.Project{ID: newID(), Name: name, Dir: dir}
 	d.projects = append(d.projects, p)
 	return p.ID
+}
+
+// isRepo reports whether dir is the root of a git repository or a
+// worktree of one.
+func isRepo(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // repoRoot returns the root of the git repository holding dir, or dir. A

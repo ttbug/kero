@@ -1898,6 +1898,26 @@ func (msgs Messages) SetNameFolder() string {
 	return Catalog.Format(msgs.locale, "setNameFolder", nil)
 }
 
+// SetGroupByFolder says "Group sessions by folder"
+// in the language the app shows.
+func SetGroupByFolder() string { return In(i18n.Locale()).SetGroupByFolder() }
+
+// SetGroupByFolder says "Group sessions by folder"
+// in the language of msgs.
+func (msgs Messages) SetGroupByFolder() string {
+	return Catalog.Format(msgs.locale, "setGroupByFolder", nil)
+}
+
+// SetGroupByFolderDetail says "When a session's shell changes folder, the session joins the project of that folder. A session you moved by hand stay…"
+// in the language the app shows.
+func SetGroupByFolderDetail() string { return In(i18n.Locale()).SetGroupByFolderDetail() }
+
+// SetGroupByFolderDetail says "When a session's shell changes folder, the session joins the project of that folder. A session you moved by hand stay…"
+// in the language of msgs.
+func (msgs Messages) SetGroupByFolderDetail() string {
+	return Catalog.Format(msgs.locale, "setGroupByFolderDetail", nil)
+}
+
 // SetFocusFollowsMouse says "Focus follows mouse"
 // in the language the app shows.
 func SetFocusFollowsMouse() string { return In(i18n.Locale()).SetFocusFollowsMouse() }

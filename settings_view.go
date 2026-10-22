@@ -461,6 +461,9 @@ func (a *App) generalPage(c *ui.Context, pal *palette) {
 			segmented(c, "sessionname", &s.SessionName, []string{proto.NameFocused, proto.NameLead, proto.NameFolder},
 				[]string{locales.SetNameFocused(), locales.SetNameLead(), locales.SetNameFolder()})
 		})
+		settingRow(c, pal, locales.SetGroupByFolder(), locales.SetGroupByFolderDetail(), func() {
+			toggle(c.Key("group-folder"), &s.GroupByFolder, pal)
+		})
 		settingRow(c, pal, locales.SetFocusFollowsMouse(), locales.SetFocusFollowsMouseDetail(), func() {
 			toggle(c.Key("focusmouse"), &s.FocusFollowsMouse, pal)
 		})

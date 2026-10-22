@@ -25,6 +25,7 @@ type Settings struct {
 	RestoreSessions   bool   `json:"restoreSessions"`   // after kerod restarts, as after a reboot
 	ResumeAgents      bool   `json:"resumeAgents"`      // as it restores sessions: the agents' own
 	QuitConfirm       bool   `json:"quitConfirm"`       // tell, the first time, that quitting keeps sessions
+	GroupByFolder     bool   `json:"groupByFolder"`     // an agent's folder picks its session's project
 
 	// Appearance
 	Appearance string `json:"appearance"` // "system", "light" or "dark"
@@ -82,6 +83,7 @@ func Default() Settings {
 		RestoreSessions: true,
 		ResumeAgents:    true,
 		QuitConfirm:     true,
+		GroupByFolder:   true,
 		Appearance:      "system",
 		Language:        "system",
 		Background:      "rex",

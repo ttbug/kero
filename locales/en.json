@@ -326,6 +326,8 @@
   "setNameFocused": "Pane You’re In",
   "setNameLead": "Pane That Needs You",
   "setNameFolder": "Folder",
+  "setGroupByFolder": "Group sessions by folder",
+  "setGroupByFolderDetail": "When a session's shell changes folder, the session joins the project of that folder. A session you moved by hand stays where you put it.",
   "setFocusFollowsMouse": "Focus follows mouse",
   "setFocusFollowsMouseDetail": "A pane takes the focus when the pointer moves into it, without a click.",
   "setAskBeforeClosing": "Ask before closing a running program",

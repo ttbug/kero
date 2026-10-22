@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"kero/internal/proto"
+	"kero/internal/settings"
 )
 
 // session is a row of the sidebar: a task's panes, in a layout. d.mu
@@ -17,6 +18,7 @@ import (
 type session struct {
 	id, project, name string
 	agentNamed        bool // name is an agent's (proto.Session.AgentNamed)
+	pinned            bool // the user moved it to its project: an agent's folder leaves it
 	created           int64
 	restored          bool
 	panes             []*pane
@@ -423,6 +425,7 @@ func (d *Daemon) move(p proto.MoveParams) error {
 	}
 	if p.Project != "" {
 		s.project = d.projectFor(p.Project, "")
+		s.pinned = true
 	}
 	i := slices.Index(d.sessions, s)
 	d.sessions = slices.Delete(d.sessions, i, i+1)
@@ -441,6 +444,46 @@ func (d *Daemon) move(p proto.MoveParams) error {
 	}
 	d.sessions = slices.Insert(d.sessions, at, s)
 	return nil
+}
+
+// regroup puts a session under the project of dir, as its shell moves
+// there or its agent starts there: the project whose folder holds dir,
+// else the one of the repository dir is in, made for it. A folder of no
+// project, as /tmp, leaves the session where it is, so that a cd through
+// one makes no group; and a session the user moved by hand stays where
+// they put it. It reports whether it moved the session.
+func (d *Daemon) regroup(sid, dir string) bool {
+	if dir == "" || !settings.Load().GroupByFolder {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := d.findSessionLocked(sid)
+	if s == nil || s.pinned {
+		return false
+	}
+	project, repo := d.projectAt(dir)
+	if project == "" {
+		if !repo {
+			return false
+		}
+		project = d.newProject(repoRoot(dir))
+	}
+	if project == s.project {
+		return false
+	}
+	s.project = project
+	i := slices.Index(d.sessions, s)
+	d.sessions = slices.Delete(d.sessions, i, i+1)
+	// After the other sessions of the project, as a move by hand.
+	at := len(d.sessions)
+	for j, o := range d.sessions {
+		if o.project == project {
+			at = j + 1
+		}
+	}
+	d.sessions = slices.Insert(d.sessions, at, s)
+	return true
 }
 
 // sameLeaves reports whether a layout shows exactly a session's panes.

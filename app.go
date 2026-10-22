@@ -894,15 +894,16 @@ func (a *App) toast(msg string) { a.pendingToast = msg }
 
 // newSession starts a session in a project: in the directory of the
 // session shown when it is the project's, as a terminal's new tab does,
-// else the project's.
+// else the project's; a directory of another project puts it there.
 func (a *App) newSession(projectID string) {
 	if a.cl == nil {
 		return
 	}
 	p := proto.CreateParams{Project: projectID}
-	if cur := a.session(a.selected); cur != nil {
+	cur := a.session(a.selected)
+	if cur != nil {
 		if projectID == "" || cur.Project == projectID {
-			p.Project, p.After = cur.Project, cur.ID
+			p.After = cur.ID
 			if a.set.NewSessionDir == "current" {
 				p.Dir = cur.FocusPane().WorkDir()
 			}
@@ -911,6 +912,12 @@ func (a *App) newSession(projectID string) {
 	}
 	if a.set.NewSessionDir == "home" {
 		p.Dir = proto.Home()
+	}
+	// A folder of its own sets the group, as opening it would: the daemon
+	// finds the project of the folder, or makes one for its repository.
+	// Only a session with no folder of its own keeps the project shown.
+	if projectID == "" && p.Dir == "" && cur != nil {
+		p.Project = cur.Project
 	}
 	if p.Project == "" && len(a.st.Projects) == 0 {
 		p.Dir = proto.Home()

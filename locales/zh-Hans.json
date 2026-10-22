@@ -185,6 +185,8 @@
   "setNameFocused": "当前窗格",
   "setNameLead": "需要你的窗格",
   "setNameFolder": "文件夹",
+  "setGroupByFolder": "按文件夹分组会话",
+  "setGroupByFolderDetail": "会话的 Shell 切换目录时，会话会归入该目录对应的项目。手动移动过的会话保持在原处。",
   "setFocusFollowsMouse": "焦点跟随鼠标",
   "setFocusFollowsMouseDetail": "指针移入窗格时，该窗格无需点击即获得焦点。",
   "setAskBeforeClosing": "关闭正在运行的程序前询问",

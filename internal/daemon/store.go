@@ -28,6 +28,7 @@ type savedSession struct {
 	Project    string        `json:"project"`
 	Name       string        `json:"name,omitempty"`
 	AgentNamed bool          `json:"agentNamed,omitempty"`
+	Pinned     bool          `json:"pinned,omitempty"`
 	Created    int64         `json:"created"`
 	Layout     *proto.Layout `json:"layout,omitempty"`
 	Focus      string        `json:"focus,omitempty"`
@@ -75,7 +76,7 @@ func (d *Daemon) saveState() {
 	d.mu.Lock()
 	st := savedState{Version: 2, Projects: d.projects, Saved: time.Now().UnixMilli()}
 	for _, s := range d.sessions {
-		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Created: s.created, Layout: s.layout, Focus: s.focus}
+		ss := savedSession{ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed, Pinned: s.pinned, Created: s.created, Layout: s.layout, Focus: s.focus}
 		for _, p := range s.panes {
 			p.mu.Lock()
 			sp := savedPane{ID: p.info.ID, Dir: p.info.Dir, Command: p.info.Command, URL: p.info.URL,
@@ -139,7 +140,7 @@ func (d *Daemon) restore() {
 	d.projects = st.Projects
 	when := time.UnixMilli(st.Saved).Format("Mon Jan 2 15:04")
 	for _, ss := range st.Sessions {
-		s := &session{id: ss.ID, project: ss.Project, name: ss.Name, agentNamed: ss.AgentNamed, created: ss.Created, restored: true, focus: ss.Focus}
+		s := &session{id: ss.ID, project: ss.Project, name: ss.Name, agentNamed: ss.AgentNamed, pinned: ss.Pinned, created: ss.Created, restored: true, focus: ss.Focus}
 		for _, sp := range ss.Panes {
 			if !set.ResumeAgents {
 				sp.Agent = nil

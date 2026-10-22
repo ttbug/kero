@@ -41,7 +41,7 @@ Until you or an agent name a session, the `session-name` setting (**Name session
 
 ## Projects
 
-A **project** is a folder. Kero groups sessions under their project in the sidebar. Open one with <kbd>⌘</kbd> <kbd>O</kbd>, or let `kero new` pick it by the directory a session starts in.
+A **project** is a folder. Kero groups sessions under their project in the sidebar. Open one with <kbd>⌘</kbd> <kbd>O</kbd>, or let the folder pick it: a new session joins the project of the folder it starts in, or of the repository that folder is in, and a session whose shell `cd`s to another folder moves to that folder's project, made for a repository. A session you moved by hand stays where you put it. Turn the automatic move off with `group-by-folder = false`.
 
 ```sh
 kero projects            # list projects
