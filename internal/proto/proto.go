@@ -150,6 +150,10 @@ type Project struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Dir  string `json:"dir,omitempty"`
+	// Auto tells a project the daemon made for the directory a session
+	// started in or moved to, rather than one the user opened: an auto
+	// project goes when its last session leaves, a manual one stays.
+	Auto bool `json:"auto,omitempty"`
 }
 
 // Pane is a terminal the daemon keeps running: a shell in a

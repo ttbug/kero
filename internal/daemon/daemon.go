@@ -336,6 +336,9 @@ func (d *Daemon) tickLoop() {
 			if s.tick(now) {
 				changed = true
 			}
+			if d.follow(s) {
+				changed = true
+			}
 		}
 		if changed {
 			d.changed()
@@ -379,21 +382,33 @@ func (d *Daemon) projectFor(ref, dir string) string {
 		}
 		dir = proto.Home()
 	}
+	root, repo := gitRoot(dir)
+	if root == "" {
+		root = dir
+	}
 	best, bestLen := "", -1
 	for _, p := range d.projects {
-		if p.Dir != "" && proto.Within(dir, p.Dir) && len(p.Dir) > bestLen {
-			best, bestLen = p.ID, len(p.Dir)
+		if p.Dir == "" || !proto.Within(dir, p.Dir) || len(p.Dir) <= bestLen {
+			continue
 		}
+		// A directory in a repository belongs to that repository's
+		// project, not to one above it that holds another repository: a
+		// project at $HOME mustn't hold every repository under it.
+		if repo && repoRoot(p.Dir) != root {
+			continue
+		}
+		best, bestLen = p.ID, len(p.Dir)
 	}
 	if best != "" {
 		return best
 	}
-	root := repoRoot(dir)
 	name := filepath.Base(root)
 	if root == proto.Home() {
 		name = "Home"
 	}
-	p := proto.Project{ID: newID(), Name: name, Dir: root}
+	// One the daemon makes for a directory: the sidebar shows it while a
+	// session is in it (proto.Project.Auto).
+	p := proto.Project{ID: newID(), Name: name, Dir: root, Auto: true}
 	d.projects = append(d.projects, p)
 	return p.ID
 }
@@ -401,18 +416,28 @@ func (d *Daemon) projectFor(ref, dir string) string {
 // repoRoot returns the root of the git repository holding dir, or dir. A
 // linked worktree's is its repository's main checkout, wherever it lies.
 func repoRoot(dir string) string {
+	if root, ok := gitRoot(dir); ok {
+		return root
+	}
+	return dir
+}
+
+// gitRoot returns the root of the git repository holding dir, and whether
+// dir is in one: %HOME is the farthest it looks, so that a home directory
+// of dotfiles isn't the root of everything under it.
+func gitRoot(dir string) (string, bool) {
 	for d := dir; ; {
 		if fi, err := os.Stat(filepath.Join(d, ".git")); err == nil {
 			if !fi.IsDir() {
 				if main := worktreeMain(d); main != "" {
-					return main
+					return main, true
 				}
 			}
-			return d
+			return d, true
 		}
 		parent := filepath.Dir(d)
 		if parent == d || d == proto.Home() {
-			return dir
+			return "", false
 		}
 		d = parent
 	}

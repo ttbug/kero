@@ -139,6 +139,7 @@ func (d *Daemon) restore() {
 	if !set.RestoreSessions {
 		// The projects stay; the sessions of the last daemon do not.
 		d.projects = st.Projects
+		d.pruneAutoProjects()
 		return
 	}
 	d.projects = st.Projects
@@ -170,6 +171,9 @@ func (d *Daemon) restore() {
 		d.sessions = append(d.sessions, s)
 		d.log.Printf("session %s restored, %d panes", s.id, len(s.panes))
 	}
+	// A session that couldn't come back leaves its project behind if the
+	// daemon made it.
+	d.pruneAutoProjects()
 }
 
 // restorePane starts a pane of the last daemon again, under its

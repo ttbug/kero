@@ -49,7 +49,9 @@ type pane struct {
 	stamp    uint64
 	shellPID int
 	fgPGID   int
-	cwdAt    time.Time
+	// followedDir is the shell's directory follow acted on last, so that a
+	// directory moves a session once (see follow).
+	followedDir string
 
 	dirty bool // output since the history on disk
 	// seen is what the screen showed when the status last came from it,
@@ -350,28 +352,27 @@ func (s *pane) tick(now time.Time) bool {
 		s.seen, s.looked = "", false
 		changed = true
 	}
-	if now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
-		s.cwdAt = now
-		if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
-			s.info.Dir = dir
-			changed = true
-			s.d.save()
-			s.d.git.poke(dir)
-		}
-		// The program's own, from its group's leader, as an agent's that
-		// went into a worktree: the shell under it stays where it was.
-		pdir := ""
-		if proc != "" {
-			pdir = procCwd(pg)
-		}
-		if pdir == s.info.Dir {
-			pdir = ""
-		}
-		if pdir != s.info.ProcessDir {
-			s.info.ProcessDir = pdir
-			changed = true
-			s.d.git.poke(s.info.WorkDir())
-		}
+	// The shell's directory, every tick of the 400ms loop: a cd shows in
+	// the sidebar as soon as the session follows it (see follow).
+	if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
+		s.info.Dir = dir
+		changed = true
+		s.d.save()
+		s.d.git.poke(dir)
+	}
+	// The program's own, from its group's leader, as an agent's that
+	// went into a worktree: the shell under it stays where it was.
+	pdir := ""
+	if proc != "" {
+		pdir = procCwd(pg)
+	}
+	if pdir == s.info.Dir {
+		pdir = ""
+	}
+	if pdir != s.info.ProcessDir {
+		s.info.ProcessDir = pdir
+		changed = true
+		s.d.git.poke(s.info.WorkDir())
 	}
 	if s.look(now) {
 		changed = true

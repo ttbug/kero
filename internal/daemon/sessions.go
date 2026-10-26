@@ -261,6 +261,9 @@ func (d *Daemon) startPane(sid string, p proto.CreateParams, dir string) (*pane,
 		pn.term.Close()
 		return nil, err
 	}
+	// A session starts where it was started: its first cd moves it, not
+	// the directory it already had (see follow).
+	pn.settleFollow()
 	return pn, nil
 }
 
@@ -295,6 +298,12 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 	s := &session{id: newID(), project: project, name: strings.TrimSpace(p.Name), created: time.Now().UnixMilli(), worktree: wt}
 	pn, err := d.startPane(s.id, p, dir)
 	if err != nil {
+		// A project the daemon made for the directory goes with the pane
+		// that couldn't start in it.
+		d.mu.Lock()
+		d.dropEmptyLocked(project)
+		d.mu.Unlock()
+		d.changed()
 		return proto.Session{}, err
 	}
 	s.panes, s.focus = []*pane{pn}, pn.info.ID
@@ -402,6 +411,7 @@ func (d *Daemon) removePane(id string) error {
 		}
 		if len(s.panes) == 0 {
 			d.sessions = slices.DeleteFunc(d.sessions, func(o *session) bool { return o == s })
+			d.dropEmptyLocked(s.project)
 		} else if s.focus == id {
 			s.focus = s.panes[0].info.ID
 		}
@@ -427,6 +437,7 @@ func (d *Daemon) removeSession(ref string) error {
 	for _, p := range panes {
 		delete(d.panes, p.info.ID)
 	}
+	d.dropEmptyLocked(s.project)
 	d.mu.Unlock()
 	for _, p := range panes {
 		p.close()
@@ -439,14 +450,12 @@ func (d *Daemon) removeSession(ref string) error {
 
 func (d *Daemon) move(p proto.MoveParams) error {
 	d.mu.Lock()
-	defer func() {
-		d.mu.Unlock()
-		d.changed()
-	}()
 	s := d.findSessionLocked(p.ID)
 	if s == nil {
+		d.mu.Unlock()
 		return fmt.Errorf("no session %s", p.ID)
 	}
+	old := s.project
 	if p.Project != "" {
 		s.project = d.projectFor(p.Project, "")
 	}
@@ -466,6 +475,17 @@ func (d *Daemon) move(p proto.MoveParams) error {
 		at = j + 1
 	}
 	d.sessions = slices.Insert(d.sessions, at, s)
+	if old != s.project {
+		d.dropEmptyLocked(old)
+	}
+	lead := focusedLocked(s)
+	d.mu.Unlock()
+	if p.Project != "" && lead != nil {
+		// The user put the session there: the shell's directory alone
+		// shouldn't undo it.
+		lead.settleFollow()
+	}
+	d.changed()
 	return nil
 }
 

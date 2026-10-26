@@ -487,6 +487,9 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		for i := range d.projects {
 			if d.projects[i].ID == p.ID {
 				d.projects[i].Name = name
+				// The user named it: it is theirs now, and stays when
+				// the last session leaves (proto.Project.Auto).
+				d.projects[i].Auto = false
 			}
 		}
 		d.mu.Unlock()
