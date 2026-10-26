@@ -42,6 +42,12 @@ type webEntry struct {
 	findText string
 	// loads are kero browser's calls waiting for the page's load to end.
 	loads []chan error
+	// iconURL is the URL of the icon the page told: until it does, its
+	// site's last shows.
+	iconURL string
+	// staged lays the page out unseen, for kero browser screenshot of a
+	// pane never shown, which has no size, and so no picture.
+	staged bool
 }
 
 // browserUA makes the page look like Safari's on macOS: sites serve a bare
@@ -67,7 +73,7 @@ func (a *App) ensureWeb(p *proto.Pane) *webEntry {
 		return e
 	}
 	v, err := a.win.NewWebView(mygo.WebViewOptions{
-		Page: mygo.PageOptions{DevTools: mygo.DevToolsEnabled, UserAgentSuffix: browserUA()},
+		Page: mygo.PageOptions{DevTools: mygo.DevToolsEnabled, UserAgentSuffix: browserUA(), ContentRules: a.adRules()},
 	})
 	if err != nil {
 		e.err = err.Error()
@@ -83,7 +89,7 @@ func (a *App) ensureWeb(p *proto.Pane) *webEntry {
 			if a.webs[id] != e {
 				return
 			}
-			e.url, e.err = url, ""
+			e.url, e.err, e.iconURL = url, "", ""
 			if !e.editing {
 				e.address = url
 			}
@@ -107,12 +113,15 @@ func (a *App) ensureWeb(p *proto.Pane) *webEntry {
 			}
 			e.syncNav()
 			a.tellPage(id, e)
+			// A page of an app changes its icon as it does its title.
+			a.findFavicon(e)
 		})
 	})
 	page.OnDidFinishLoad(func() {
 		a.update(func() {
 			e.syncNav()
 			e.loadEnded(nil)
+			a.findFavicon(e)
 		})
 	})
 	page.OnDidFailLoad(func(err *mygo.LoadError) {
@@ -167,7 +176,7 @@ func (a *App) tellPage(id string, e *webEntry) {
 			p.URL, p.Title = e.url, e.title
 		}
 	}
-	a.call("pane.page", proto.PageParams{ID: id, URL: e.url, Title: e.title}, nil)
+	a.call(id, "pane.page", proto.PageParams{ID: id, URL: e.url, Title: e.title}, nil)
 }
 
 func (a *App) dropWeb(id string) {
@@ -285,7 +294,7 @@ func (a *App) paneBrowser(c *ui.Context, pal *palette, bar ui.TitleBar, shown fl
 // clear of the traffic lights and the sidebar's buttons.
 func (a *App) browserBar(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32, s *proto.Session, p *proto.Pane, e *webEntry, top, left, right, multi, focused, hovered bool) (ui.Element, bool) {
 	pad := float32(16)
-	if left {
+	if top && left {
 		pad = a.chrome.headerPad
 	}
 	// The first button's icon starts where a header's title does.
@@ -370,7 +379,13 @@ func (a *App) addressBar(c *ui.Context, pal *palette, s *proto.Session, p *proto
 				grip.Background(pal.rowHover).TextColor(pal.textMuted).Cursor(ui.CursorGrab)
 			}
 		}
-		grip.Children(func() { ui.Icon(c, globeIcon).Size(13, 13) })
+		grip.Children(func() {
+			if icon := a.favicon(e); icon != nil && !blank {
+				ui.Image(c, icon).Size(14, 14).Radius(3)
+			} else {
+				ui.Icon(c, globeIcon).Size(13, 13)
+			}
+		})
 		in = ui.TextInputBase(c.Key("in"), &e.address).Grow(1).MinWidth(0).FontSize(12.5).
 			Placeholder(locales.BrowserAddress()).Label(locales.BrowserAddress())
 		if blank {

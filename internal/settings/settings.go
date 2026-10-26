@@ -6,12 +6,16 @@ package settings
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
+	"kero/internal/adblock"
 	"kero/internal/proto"
+	"kero/internal/remote"
 )
 
 // Settings are the user's choices. The zero value of a field is never a
@@ -24,8 +28,9 @@ type Settings struct {
 	ConfirmClose      bool   `json:"confirmClose"`      // before closing a pane a program runs in
 	RestoreSessions   bool   `json:"restoreSessions"`   // after kerod restarts, as after a reboot
 	ResumeAgents      bool   `json:"resumeAgents"`      // as it restores sessions: the agents' own
+	SessionHistory    bool   `json:"sessionHistory"`    // the sidebar lists the agents' ended conversations
 	QuitConfirm       bool   `json:"quitConfirm"`       // tell, the first time, that quitting keeps sessions
-	GroupByFolder     bool   `json:"groupByFolder"`     // an agent's folder picks its session's project
+	AppIcon           string `json:"appIcon"`           // macOS: AppIcons; elsewhere the icon is always in the notification area
 
 	// Appearance
 	Appearance string `json:"appearance"` // "system", "light" or "dark"
@@ -40,8 +45,9 @@ type Settings struct {
 	FontWeight   int     `json:"fontWeight"`
 	Ligatures    bool    `json:"ligatures"`
 	Thicken      bool    `json:"thicken"`
-	MinContrast  float32 `json:"minContrast"` // a WCAG ratio text keeps with its background
-	Cursor       string  `json:"cursor"`      // "block", "bar" or "underline"
+	MinContrast  float32 `json:"minContrast"`           // a WCAG ratio text keeps with its background
+	DimUnfocused bool    `json:"dimUnfocusedTerminals"` // the terminals the user is not in fade
+	Cursor       string  `json:"cursor"`                // "block", "bar" or "underline"
 	CursorBlink  bool    `json:"cursorBlink"`
 	LightTheme   string  `json:"lightTheme"` // "kero", or a Ghostty theme's name
 	DarkTheme    string  `json:"darkTheme"`
@@ -69,9 +75,59 @@ type Settings struct {
 	// Git
 	GitStatus  bool   `json:"gitStatus"`  // each pane's branch and changes, which kerod follows
 	DiffLayout string `json:"diffLayout"` // the changes panel's diffs: "auto", "unified" or "split"
+	// WorktreeBase is what a session's own worktree branches from:
+	// "default", the repository's default branch, or "current", the
+	// branch of the session the user is in. WorktreeDir is where its
+	// worktrees go, "" for .kero/worktrees in the repository.
+	WorktreeBase string `json:"worktreeBase"`
+	WorktreeDir  string `json:"worktreeDir"`
+
+	// Browser
+	BlockAds bool     `json:"blockAds"` // in browser panes, with AdLists
+	AdLists  []string `json:"adLists"`  // the filter lists: adblock.Catalog's IDs, or URLs
 
 	// Keyboard: accelerators by action, over the defaults; "" unbinds.
 	Shortcuts map[string]string `json:"shortcuts,omitempty"`
+
+	// Hosts are other machines' kerods, which the app shows beside this
+	// one's and the CLI reaches with -H.
+	Hosts []Host `json:"hosts,omitempty"`
+	// Listen are kerod's network listeners, for clients on other machines
+	// (tailnet://:7373, tailnet-serve://), and ListenAllow who may connect
+	// besides the machine's owner: tailnet logins, tag:name, or *.
+	Listen      []string `json:"listen,omitempty"`
+	ListenAllow []string `json:"listenAllow,omitempty"`
+	// RemoteUpdates lets Kero on another machine that connects update the
+	// app here to its version, and restart kerod into it, as it can a
+	// server build: off unless the user turns it on here.
+	RemoteUpdates bool `json:"remoteUpdates,omitempty"`
+}
+
+// Host is a machine whose kerod the app shows: its name, and its address
+// (package remote).
+type Host struct {
+	Name string `json:"name"`
+	Addr string `json:"addr"`
+	// RemoteControl lets the host's programs drive the app, as kero focus
+	// and kero do, which remote-control lets this machine's: off unless the
+	// user trusts the host with it.
+	RemoteControl bool `json:"remoteControl,omitempty"`
+	// Color marks the host's sessions in the sidebar and its panes: one of
+	// HostColors, "" for the one its name picks.
+	Color string `json:"color,omitempty"`
+}
+
+// HostColors are the colors a host takes.
+var HostColors = []string{"red", "orange", "amber", "green", "teal", "blue", "purple", "pink"}
+
+// Host returns the host of a name, else nil.
+func (s *Settings) Host(name string) *Host {
+	for i := range s.Hosts {
+		if strings.EqualFold(s.Hosts[i].Name, name) {
+			return &s.Hosts[i]
+		}
+	}
+	return nil
 }
 
 // Default returns the settings of a new install.
@@ -83,11 +139,12 @@ func Default() Settings {
 		RestoreSessions: true,
 		ResumeAgents:    true,
 		QuitConfirm:     true,
-		GroupByFolder:   true,
+		AppIcon:         "dock-and-menubar",
 		Appearance:      "system",
 		Language:        "system",
 		Background:      "rex",
 		Vibrancy:        true,
+		DimUnfocused:    true,
 		FontSize:        13,
 		LineHeight:      1.22,
 		FontWeight:      400,
@@ -107,12 +164,19 @@ func Default() Settings {
 		RemoteControl:   true,
 		GitStatus:       true,
 		DiffLayout:      "auto",
+		WorktreeBase:    "default",
+		BlockAds:        true,
+		AdLists:         slices.Clone(adblock.DefaultLists),
 	}
 }
 
 // Languages are the languages the app is written in, as the catalogs of
 // kero/locales name them.
-var Languages = []string{"en", "zh-Hans"}
+var Languages = []string{"en", "ja", "zh-Hans"}
+
+// AppIcons are where the app's icon shows on macOS: the Dock and the menu
+// bar, the Dock alone, or the menu bar alone.
+var AppIcons = []string{"dock-and-menubar", "dock", "menubar"}
 
 // Backgrounds are the washes the window can show.
 var Backgrounds = []struct{ ID, Name string }{
@@ -226,6 +290,10 @@ func (s Settings) Clone() Settings { return clone(s) }
 
 func clone(s Settings) Settings {
 	s.Env = append([]string(nil), s.Env...)
+	s.AdLists = slices.Clone(s.AdLists)
+	s.Hosts = slices.Clone(s.Hosts)
+	s.Listen = slices.Clone(s.Listen)
+	s.ListenAllow = slices.Clone(s.ListenAllow)
 	if s.Shortcuts != nil {
 		m := make(map[string]string, len(s.Shortcuts))
 		for k, v := range s.Shortcuts {
@@ -254,6 +322,8 @@ func (s *Settings) normalize() {
 	oneOf(&s.Clipboard, d.Clipboard, "ask", "allow", "deny")
 	oneOf(&s.RightClick, d.RightClick, "menu", "paste", "copyOrPaste")
 	oneOf(&s.DiffLayout, d.DiffLayout, "auto", "unified", "split")
+	oneOf(&s.WorktreeBase, d.WorktreeBase, "default", "current")
+	oneOf(&s.AppIcon, d.AppIcon, AppIcons...)
 	known := false
 	for _, b := range Backgrounds {
 		known = known || b.ID == s.Background
@@ -279,4 +349,37 @@ func (s *Settings) normalize() {
 	if s.DarkTheme == "" {
 		s.DarkTheme = d.DarkTheme
 	}
+}
+
+// ParseHost reads a host as the configuration's host key writes it:
+// name=address, then its options: remote-control, color=<one of
+// HostColors>.
+func ParseHost(line string) (Host, error) {
+	name, rest, ok := strings.Cut(strings.TrimSpace(line), "=")
+	name = strings.TrimSpace(name)
+	fields := strings.Fields(rest)
+	if !ok || len(fields) == 0 {
+		return Host{}, fmt.Errorf("%q is not name=address", line)
+	}
+	if !remote.ValidName(name) {
+		return Host{}, fmt.Errorf("%q can't name a host: use letters, digits, dots and dashes (and not local)", name)
+	}
+	a, err := remote.ParseAddr(fields[0])
+	if err != nil {
+		return Host{}, err
+	}
+	h := Host{Name: name, Addr: a.String()}
+	for _, o := range fields[1:] {
+		switch k, v, _ := strings.Cut(o, "="); {
+		case o == "remote-control":
+			h.RemoteControl = true
+		case k == "color" && slices.Contains(HostColors, v):
+			h.Color = v
+		case k == "color":
+			return Host{}, fmt.Errorf("%s: no color %q (%s)", name, v, strings.Join(HostColors, ", "))
+		default:
+			return Host{}, fmt.Errorf("%s: no option %q (remote-control, color=…)", name, o)
+		}
+	}
+	return h, nil
 }

@@ -3,12 +3,14 @@
 package cli
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -17,9 +19,12 @@ import (
 	"time"
 
 	"kero/internal/actions"
+	"kero/internal/build"
 	"kero/internal/client"
 	"kero/internal/proto"
+	"kero/internal/service"
 	"kero/internal/settings"
+	"kero/internal/update"
 )
 
 const usage = `kero — terminal sessions that keep running, for you and your agents
@@ -34,6 +39,9 @@ Usage:
       -f, --focus                 show it in the app
       -w, --wait                  wait for cmd to end, exit with its status
       -u, --url <url>             a browser showing url, not a shell
+      --worktree <branch>         in a git worktree of its own, on a new
+                                  branch from the default branch
+      --base <ref>                the branch to start it from instead
   kero split [target] [options] [-- cmd…]
                                 start a pane beside a pane, printing its id
       --right (default), --down, --left, --up
@@ -56,6 +64,17 @@ Usage:
                                 reaches one of the statuses), print it
       -x, --exit                  instead wait for the command it started
                                   with to end, exit with its status
+  kero events [target] [-p project] [--for statuses] [--json]
+                                print what happens as it does, a line an
+                                event: panes changing status, sessions
+                                and panes starting and closing, renames,
+                                moves to another project, notifications;
+                                until the target closes
+      --for <statuses>            only panes going to these: idle,
+                                  working, waiting, error, exited
+      --once                      exit after the first event (1 if the
+                                  target closes or the timeout comes first)
+      -t, --timeout <dur>         stop watching after this long
   kero status [target] [--json]
   kero diff [target] [--turn | --branch] [path…]
                                 the changes in the pane's git worktree, as
@@ -72,6 +91,8 @@ Usage:
       back, forward, reload       and wait for the page to load
       text [selector]             print the page's text, or an element's
       html [selector]             print the page's HTML, or an element's
+      snapshot [selector]         print what the page shows: roles, names,
+                                  and a ref for each element
       click <selector>            click an element
       type <selector> <text…>     type text into a field, in place of what
                                   it holds (--enter: press Enter after it)
@@ -79,10 +100,26 @@ Usage:
                                   to), or without either, the page to load
       eval <js…>                  run JavaScript, print its value
       screenshot [-o file.png]    save a picture of the page, print where
+      cookies save [file]         save the browser's cookies (Playwright's
+                                  JSON, or cookies.txt for a .txt file)
+      cookies load <file>         load cookies from either
+      --ref <ref>                 a snapshot's element, in place of a
+                                  selector
+      --domain <domain>           cookies of a site and its subdomains
       -t, --timeout <dur>         how long to wait (default 10s)
+  kero history [query] [-p project] [-n count] [--json]
+                                the agents' conversations panes ran, the
+                                last to run first, to resume
+  kero resume <conversation> [-f]
+                                start a session resuming a conversation
+                                (its id, a prefix of it, or its name), or
+                                show the one running it, printing its id
   kero rename <session> <name>
   kero focus <target>           show a session (and pane) in the app
   kero close <target>           end a session (or, given a pane, the pane)
+      --remove-worktree           remove the session's own worktree too,
+                                  and its branch once merged
+      --force                     even if that loses changes or commits
   kero restart <target>         start an exited pane's shell again
   kero notify [target] <message>
                                 flag the pane as needing you
@@ -99,7 +136,25 @@ Usage:
   kero projects [--json]
   kero skill setup|status|show|remove
                                 teach coding agents to use kero
+  kero clients [--json]         list who is connected to kerod
+  kero hosts [ls]               the other machines Kero reaches
+  kero hosts add <name> <address> [--remote-control]
+                                save one: [user@]host or ssh://… over SSH,
+                                wsl://distro, http(s)://… for a listener
+  kero hosts remove|check <name>
+  kero hosts install <name|address> [--version v]
+                                install Kero there, over SSH
   kero daemon status|stop|restart
+  kero daemon serve [--listen tailnet://:7373]…
+                                run kerod in the foreground, never idle,
+                                as a service does
+  kero daemon install-service|uninstall-service
+                                run kerod with the machine (systemd, launchd)
+  kero daemon update [version]  update the server build of Kero
+
+Global options:
+  -H, --host <name|address>     act on kerod on another machine: a host of
+                                kero hosts, or an address ($KERO_HOST)
 
 A target is a session or a pane: an id, a prefix of it, or a session's
 name; a session stands for its focused pane. Inside kero, $KERO_PANE and
@@ -111,9 +166,15 @@ ambiguous one), 4 kerod unreachable.
 `
 
 // Commands lists the subcommands, which main sends here.
-var Commands = []string{"ls", "list", "new", "split", "send", "key", "prompt", "read", "capture", "wait", "status", "diff",
-	"rename", "focus", "close", "kill", "restart", "notify", "report", "projects", "skill", "hook", "daemon", "do", "actions", "config",
-	"browser", "help", "--help", "-h", "version", "--version"}
+var Commands = []string{"ls", "list", "new", "split", "send", "key", "prompt", "read", "capture", "wait", "events", "status", "diff",
+	"history", "resume", "rename", "focus", "close", "kill", "restart", "notify", "report", "projects", "skill", "hook", "daemon", "do", "actions", "config",
+	"browser", "hosts", "clients", "__bridge", "-H", "--host", "help", "--help", "-h", "version", "--version"}
+
+// IsCommand reports whether an argument starts a command of the CLI, as
+// main tells them from the app's.
+func IsCommand(arg string) bool {
+	return slices.Contains(Commands, arg) || strings.HasPrefix(arg, "--host=") || strings.HasPrefix(arg, "-H") && len(arg) > 2
+}
 
 // Errors of exit statuses other than 1.
 var (
@@ -130,7 +191,20 @@ func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)
 
 // Run runs a subcommand, returning the exit code.
 func Run(args []string) int {
-	err := run(args)
+	host, env, args, err := splitHost(args)
+	if err == nil && host != "" && len(args) > 0 && localOnly[args[0]] {
+		// $KERO_HOST is for what acts on sessions: the rest is of this
+		// machine, as an agent's hook in a shell whose profile sets it.
+		if env {
+			host = ""
+		} else {
+			err = usageErr("kero %s is of this machine: run it on the host itself, without -H", args[0])
+		}
+	}
+	if err == nil {
+		onHost = host
+		err = run(args, host)
+	}
 	if err == nil {
 		return 0
 	}
@@ -196,17 +270,25 @@ func parse(args []string, valued, boolean map[string]string) (*flags, error) {
 	return f, nil
 }
 
-func run(args []string) error {
+func run(args []string, host string) error {
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	case "__bridge":
+		return bridge(args)
+	case "hosts":
+		return hostsCmd(args)
 	case "help", "--help", "-h":
-		fmt.Print(usage)
+		u := usage
+		if build.Server {
+			// No app to open.
+			u = strings.Replace(u, "  kero                          open the app\n", "", 1)
+		}
+		fmt.Print(u)
 		return nil
 	case "version", "--version":
-		fmt.Printf("kero (protocol %d)\n", proto.Version)
-		return nil
+		return versionCmd(host)
 	case "daemon":
-		return daemonCmd(args)
+		return daemonCmd(args, host)
 	case "report":
 		return report(args)
 	case "actions":
@@ -225,14 +307,20 @@ func run(args []string) error {
 	case "config":
 		return configCmd(args)
 	}
-	c, err := client.Connect(false)
+	c, done, err := connect(host)
 	if err != nil {
 		if errors.Is(err, client.ErrVersion) {
 			return fmt.Errorf("%w: the running kerod is of another version: run `kero daemon restart` (it restarts sessions)", errUnreachable)
 		}
+		if errors.Is(err, errUnreachable) || errors.Is(err, errNotFound) {
+			return err
+		}
 		return fmt.Errorf("%w: %v", errUnreachable, err)
 	}
-	defer c.Close()
+	defer done()
+	if cmd == "clients" {
+		return clientsCmd(c, args)
+	}
 	var st proto.State
 	if err := c.Call("state", nil, &st); err != nil {
 		return err
@@ -274,7 +362,7 @@ func run(args []string) error {
 	case "new":
 		f, err := parse(args,
 			map[string]string{"p": "project", "project": "project", "n": "name", "name": "name", "d": "dir", "dir": "dir", "timeout": "timeout", "t": "timeout",
-				"u": "url", "url": "url"},
+				"u": "url", "url": "url", "worktree": "worktree", "base": "base"},
 			map[string]string{"f": "focus", "focus": "focus", "json": "json", "wait": "wait", "w": "wait"})
 		if err != nil {
 			return err
@@ -286,14 +374,19 @@ func run(args []string) error {
 		if f.vals["url"] != "" && (len(command) > 0 || f.set["wait"]) {
 			return usageErr("kero new --url shows a page, and runs no command")
 		}
+		if f.vals["base"] != "" && f.vals["worktree"] == "" {
+			return usageErr("kero new --base starts a --worktree's branch")
+		}
 		dir := f.vals["dir"]
-		if dir == "" && f.vals["project"] == "" {
+		// Here, unless the session is of another machine, whose kerod
+		// then starts it in the project's directory, or the home.
+		if dir == "" && f.vals["project"] == "" && host == "" {
 			dir, _ = os.Getwd()
 		}
 		var s proto.Session
 		if err := c.Call("create", proto.CreateParams{
 			Project: f.vals["project"], Name: f.vals["name"], Dir: dir, Command: command, URL: f.vals["url"],
-			After: os.Getenv("KERO_SESSION"),
+			After: os.Getenv("KERO_SESSION"), Worktree: f.vals["worktree"], Base: f.vals["base"],
 		}, &s); err != nil {
 			return err
 		}
@@ -485,6 +578,9 @@ func run(args []string) error {
 		}
 		return err
 
+	case "events":
+		return eventsCmd(c, st, args)
+
 	case "status":
 		f, err := parse(args, nil, map[string]string{"json": "json"})
 		if err != nil {
@@ -551,7 +647,7 @@ func run(args []string) error {
 			paths = []string{""}
 		}
 		for _, p := range paths {
-			rel, err := repoPath(pane.Git.Root, p)
+			rel, err := repoPath(pane.Git.Root, p, host != "")
 			if err != nil {
 				return err
 			}
@@ -560,6 +656,59 @@ func run(args []string) error {
 			}
 			fmt.Print(res.Text)
 		}
+		return nil
+
+	case "history":
+		f, err := parse(args, map[string]string{"p": "project", "project": "project", "n": "count", "count": "count"}, map[string]string{"json": "json", "j": "json"})
+		if err != nil {
+			return err
+		}
+		list, err := conversations(c, st, f.vals["project"], strings.Join(f.pos, " "))
+		if err != nil {
+			return err
+		}
+		n := 20
+		if v := f.vals["count"]; v != "" {
+			if n, err = strconv.Atoi(v); err != nil || n < 0 {
+				return usageErr("kero history -n takes a count")
+			}
+		}
+		if n > 0 && len(list) > n && !f.set["json"] {
+			list = list[:n]
+		}
+		if f.set["json"] {
+			return printJSON(list)
+		}
+		listConversations(st, list)
+		return nil
+
+	case "resume":
+		f, err := parse(args, nil, map[string]string{"f": "focus", "focus": "focus", "json": "json"})
+		if err != nil {
+			return err
+		}
+		if len(f.pos) == 0 {
+			return usageErr("kero resume <conversation> (see kero history)")
+		}
+		list, err := conversations(c, st, "", "")
+		if err != nil {
+			return err
+		}
+		conv, err := findConversation(list, strings.Join(f.pos, " "))
+		if err != nil {
+			return err
+		}
+		var s proto.Session
+		if err := c.Call("conversation.resume", proto.ConversationParams{Agent: conv.Agent, ID: conv.ID, After: os.Getenv("KERO_SESSION")}, &s); err != nil {
+			return err
+		}
+		if f.set["focus"] {
+			c.Call("select", proto.FocusParams{Session: s.ID}, nil)
+		}
+		if f.set["json"] {
+			return printJSON(s)
+		}
+		fmt.Println(s.ID)
 		return nil
 
 	case "rename":
@@ -590,20 +739,28 @@ func run(args []string) error {
 		return nil
 
 	case "close", "kill", "restart":
-		if len(args) < 1 {
-			return usageErr("kero %s <target>", cmd)
-		}
-		t, err := find(st, args[0])
+		f, err := parse(args, nil, map[string]string{"remove-worktree": "remove", "force": "force"})
 		if err != nil {
 			return err
+		}
+		if len(f.pos) < 1 {
+			return usageErr("kero %s <target>", cmd)
+		}
+		t, err := find(st, f.pos[0])
+		if err != nil {
+			return err
+		}
+		remove := f.set["remove"]
+		if remove && t.s.Worktree == nil {
+			return fmt.Errorf("session %s has no worktree of its own", t.s.ID)
 		}
 		switch {
 		case cmd == "restart":
 			return c.Call("restart", proto.IDParams{ID: t.ref()}, nil)
-		case t.pane != "" && len(t.s.Panes) > 1:
+		case t.pane != "" && len(t.s.Panes) > 1 && !remove:
 			return c.Call("pane.close", proto.IDParams{ID: t.pane}, nil)
 		}
-		return c.Call("close", proto.IDParams{ID: t.s.ID}, nil)
+		return c.Call("close", proto.CloseParams{ID: t.s.ID, RemoveWorktree: remove, Force: f.set["force"]}, nil)
 
 	case "do":
 		if len(args) < 1 {
@@ -725,10 +882,22 @@ func diffPane(t target, turn bool) *proto.Pane {
 
 // repoPath writes a path given on the command line, relative to the
 // current directory, as one from a worktree's root, slash-separated; ""
-// stays "", for every file.
-func repoPath(root, p string) (string, error) {
+// stays "", for every file. A path of another machine's worktree
+// (remote) is from its root already, unless absolute.
+func repoPath(root, p string, remote bool) (string, error) {
 	if p == "" {
 		return "", nil
+	}
+	if remote {
+		p = strings.ReplaceAll(p, `\`, "/")
+		if strings.HasPrefix(p, "/") {
+			rel, ok := strings.CutPrefix(p, strings.TrimSuffix(root, "/")+"/")
+			if !ok {
+				return "", fmt.Errorf("%s is not in the worktree %s", p, root)
+			}
+			p = rel
+		}
+		return strings.TrimPrefix(path.Clean("/"+p), "/"), nil
 	}
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -746,6 +915,10 @@ func repoPath(root, p string) (string, error) {
 
 // current is the pane a command runs in, inside kero.
 func current() string {
+	// A pane of this machine names nothing on another.
+	if onHost != "" {
+		return ""
+	}
 	if p := os.Getenv("KERO_PANE"); p != "" {
 		return p
 	}
@@ -762,30 +935,59 @@ func findOrCurrent(st proto.State, pos []string) (target, error) {
 	return target{}, usageErr("which session? (outside kero, name one)")
 }
 
-func daemonCmd(args []string) error {
+func daemonCmd(args []string, host string) error {
 	sub := "status"
 	if len(args) > 0 {
 		sub = args[0]
 	}
+	if host != "" {
+		return remoteDaemonCmd(sub, args[min(1, len(args)):], host)
+	}
 	switch sub {
 	case "status":
+		svc := service.Get()
 		c, err := client.Connect(true)
 		if err != nil {
 			fmt.Println("kerod is not running")
-			return nil
+		} else {
+			defer c.Close()
+			var st proto.State
+			c.Call("state", nil, &st)
+			panes := 0
+			for _, s := range st.Sessions {
+				panes += len(s.Panes)
+			}
+			fmt.Printf("kerod %d running (Kero %s, pid %d) for %s: %d sessions, %d panes\n", c.Welcome.Version, orDash(c.Welcome.App), c.Welcome.PID,
+				time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second), len(st.Sessions), panes)
 		}
-		defer c.Close()
-		var st proto.State
-		c.Call("state", nil, &st)
-		panes := 0
-		for _, s := range st.Sessions {
-			panes += len(s.Panes)
-		}
-		fmt.Printf("kerod %d running (pid %d) for %s: %d sessions, %d panes\n", c.Welcome.Version, c.Welcome.PID,
-			time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second), len(st.Sessions), panes)
 		fmt.Println("socket:", proto.SocketPath())
+		if svc.Installed {
+			fmt.Printf("service: %s (%s)\n", orDash(svc.Detail), svc.File)
+			if !svc.Linger {
+				fmt.Println("  it stops as you log out: loginctl enable-linger keeps it running")
+			}
+		}
+		if l := settings.Load().Listen; len(l) > 0 {
+			fmt.Println("listening:", strings.Join(l, ", "))
+		}
 		return nil
 	case "stop", "restart":
+		// The service's manager stops and restarts it, but Task
+		// Scheduler, whose kerod stops as any, and starts with the task.
+		if service.Installed() {
+			var err error
+			if sub == "stop" {
+				err = service.Stop()
+			} else {
+				err = service.Restart()
+			}
+			if !errors.Is(err, service.ErrUnsupported) {
+				if err == nil && sub == "restart" {
+					fmt.Println("kerod restarted")
+				}
+				return err
+			}
+		}
 		if err := StopDaemon(); err != nil {
 			return err
 		}
@@ -798,8 +1000,121 @@ func daemonCmd(args []string) error {
 			fmt.Println("kerod restarted")
 		}
 		return nil
+	case "serve":
+		return serveCmd(args[1:])
+	case "install-service":
+		f, err := parse(args[1:], nil, map[string]string{"no-linger": "no-linger"})
+		if err != nil {
+			return err
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
+		// A user's services stop as they log out, unless they linger: a
+		// service would then end kerod as an SSH bridge does, which a kerod
+		// of its own outlives. --no-linger takes it as it is.
+		if !f.set["no-linger"] {
+			if err := service.EnableLinger(); err != nil {
+				return fmt.Errorf("%v; without it kerod would stop as you log out (kero daemon install-service --no-linger installs it all the same)", err)
+			}
+		}
+		if err := service.Install(exe, StopDaemon); err != nil {
+			return err
+		}
+		fmt.Printf("kerod runs as a service: %s\n", service.Get().File)
+		return nil
+	case "uninstall-service":
+		if err := service.Uninstall(); err != nil {
+			return err
+		}
+		fmt.Println("kerod no longer runs as a service: the app, or a bridge, starts it")
+		return nil
+	case "update":
+		if !build.Server {
+			return errors.New("this is Kero's desktop app, which updates itself: kero daemon update is of the server build")
+		}
+		version := ""
+		if len(args) > 1 {
+			version = args[1]
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if version == "" {
+			v, err := update.Latest(ctx)
+			if err != nil {
+				return err
+			}
+			version = v
+		}
+		if strings.TrimPrefix(version, "v") == build.Version() {
+			fmt.Printf("Kero %s is installed\n", build.Version())
+			return nil
+		}
+		// A version named is the user's to go back to.
+		if err := update.Install(ctx, version, update.InstallDir(), build.Version(), len(args) > 1); err != nil {
+			return err
+		}
+		fmt.Printf("installed Kero %s: kerod runs it as it restarts (kero daemon restart), its sessions with it\n", strings.TrimPrefix(version, "v"))
+		return nil
 	}
 	return usageErr("unknown daemon command %q", sub)
+}
+
+// remoteDaemonCmd is kero -H <host> daemon …: how kerod on the host is,
+// and restarting it, or updating Kero there, as the app does.
+func remoteDaemonCmd(sub string, args []string, host string) error {
+	rc, err := dialHost(host)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	switch sub {
+	case "status":
+		h := rc.Welcome.Host
+		fmt.Printf("%s: %s (%s/%s), Kero %s (protocol %d)\n", host, h.Hostname, h.OS, h.Arch, orDash(h.Kero), h.Version)
+		c, err := client.ConnectVia(rc)
+		if err != nil {
+			fmt.Println("kerod:", err)
+			return nil
+		}
+		defer c.Close()
+		var st proto.State
+		c.Call("state", nil, &st)
+		fmt.Printf("kerod %d running (Kero %s, pid %d) for %s: %d sessions\n", c.Welcome.Version, orDash(c.Welcome.App), c.Welcome.PID,
+			time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second), len(st.Sessions))
+		return nil
+	case "restart":
+		if err := rc.Host(ctx, proto.HostRequest{Kind: proto.KindRestart}); err != nil {
+			return err
+		}
+		fmt.Printf("kerod on %s restarted\n", host)
+		return nil
+	case "update":
+		version := releasedVersion()
+		if len(args) > 0 {
+			version = strings.TrimPrefix(args[0], "v")
+		}
+		if version == "" {
+			v, err := update.Latest(ctx)
+			if err != nil {
+				return err
+			}
+			version = v
+		}
+		fmt.Printf("updating Kero on %s to %s…\n", host, version)
+		if err := rc.Host(ctx, proto.HostRequest{Kind: proto.KindUpdate, App: version}); err != nil {
+			return err
+		}
+		fmt.Printf("installed: kerod on %s runs it as it restarts (kero -H %s daemon restart), its sessions with it\n", host, host)
+		return nil
+	}
+	return usageErr("kero -H <host> daemon status|restart|update [version]")
 }
 
 // StopDaemon stops the running daemon, which saves its sessions to start
@@ -823,6 +1138,84 @@ func StopDaemon() error {
 		time.Sleep(30 * time.Millisecond)
 	}
 	return errors.New("kerod did not stop")
+}
+
+// conversations lists the conversations kerod remembers, of a project
+// (by id or name) when one is named, matching query when there is one.
+func conversations(c *client.Client, st proto.State, project, query string) ([]proto.Conversation, error) {
+	var list []proto.Conversation
+	if err := c.Call("conversations", nil, &list); err != nil {
+		if strings.Contains(err.Error(), "unknown method") {
+			return nil, errors.New("this kerod remembers no conversations: update it, or run `kero daemon restart`")
+		}
+		return nil, err
+	}
+	if project != "" {
+		id := ""
+		for _, p := range st.Projects {
+			if p.ID == project || strings.EqualFold(p.Name, project) {
+				id = p.ID
+			}
+		}
+		if id == "" {
+			return nil, fmt.Errorf("no project %q", project)
+		}
+		list = slices.DeleteFunc(list, func(cv proto.Conversation) bool { return cv.Project != id })
+	}
+	if q := strings.ToLower(strings.TrimSpace(query)); q != "" {
+		list = slices.DeleteFunc(list, func(cv proto.Conversation) bool {
+			for _, w := range strings.Fields(q) {
+				if !strings.Contains(strings.ToLower(cv.Name+" "+cv.Title+" "+cv.Dir+" "+cv.Agent+" "+cv.ID), w) {
+					return true
+				}
+			}
+			return false
+		})
+	}
+	return list, nil
+}
+
+// findConversation finds a conversation by its id, a unique prefix of
+// it, or its name.
+func findConversation(list []proto.Conversation, ref string) (proto.Conversation, error) {
+	var found []proto.Conversation
+	for _, cv := range list {
+		if cv.ID == ref {
+			return cv, nil
+		}
+		if strings.HasPrefix(cv.ID, ref) || strings.EqualFold(cv.Label(), ref) {
+			found = append(found, cv)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return proto.Conversation{}, fmt.Errorf("%w: no conversation %q (see kero history)", errNotFound, ref)
+	case 1:
+		return found[0], nil
+	}
+	return proto.Conversation{}, fmt.Errorf("%q could be %d conversations: give more of its id (see kero history)", ref, len(found))
+}
+
+func listConversations(st proto.State, list []proto.Conversation) {
+	if len(list) == 0 {
+		fmt.Println("no conversations yet (agents' conversations show here once Kero's skill is set up: kero skill setup)")
+		return
+	}
+	names := map[string]string{}
+	for _, p := range st.Projects {
+		names[p.ID] = p.Name
+	}
+	now := time.Now()
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tAGENT\tPROJECT\tNAME\tLAST RAN\tDIR")
+	for _, cv := range list {
+		when := proto.Ago(cv.Updated, now)
+		if cv.Session != "" {
+			when = "running in " + cv.Session
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", cv.ID, cv.Agent, orDash(names[cv.Project]), cv.Label(), when, proto.ShortDir(cv.Dir))
+	}
+	w.Flush()
 }
 
 func listSessions(st proto.State) {

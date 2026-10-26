@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"kero/internal/proto"
-	"kero/internal/settings"
 )
 
 // session is a row of the sidebar: a task's panes, in a layout. d.mu
@@ -18,23 +17,30 @@ import (
 type session struct {
 	id, project, name string
 	agentNamed        bool // name is an agent's (proto.Session.AgentNamed)
-	pinned            bool // the user moved it to its project: an agent's folder leaves it
 	created           int64
 	restored          bool
 	panes             []*pane
 	layout            *proto.Layout
 	focus, zoomed     string
+	worktree          *proto.Worktree // made for it (proto.Session.Worktree)
 }
 
 // state returns what the subscribers see.
 func (d *Daemon) state() proto.State {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return d.stateLocked()
+}
+
+// stateLocked is state, with d.mu held.
+func (d *Daemon) stateLocked() proto.State {
 	st := proto.State{
 		Projects: slices.Clone(d.projects),
 		Sessions: make([]proto.Session, 0, len(d.sessions)),
 		Viewed:   d.viewedID(),
 		Started:  d.started.UnixMilli(),
+		// The conversations' lock comes after d.mu.
+		Conversations: d.convs.generation(),
 	}
 	for _, s := range d.sessions {
 		st.Sessions = append(st.Sessions, d.sessionInfo(s))
@@ -46,7 +52,7 @@ func (d *Daemon) state() proto.State {
 func (d *Daemon) sessionInfo(s *session) proto.Session {
 	info := proto.Session{
 		ID: s.id, Project: s.project, Name: s.name, AgentNamed: s.agentNamed,
-		Layout: s.layout.Clone(), Focus: s.focus, Zoomed: s.zoomed,
+		Layout: s.layout.Clone(), Focus: s.focus, Zoomed: s.zoomed, Worktree: s.worktree,
 		Panes: make([]proto.Pane, 0, len(s.panes)),
 	}
 	// Panes in the layout's order: left to right, top to bottom.
@@ -142,11 +148,12 @@ func (d *Daemon) findPane(ref string) *pane {
 
 // agentPane finds the pane an agent's hook tells of, from the hook's
 // process pid: the pane whose shell runs it. An agent's service that
-// panes share, as Codex's app server, runs its hooks under no pane's
-// shell, and with the environment of the pane that started it, which
-// names no pane to trust: then the pane is the one that can only be
-// the agent's, its only pane yet to tell a session (or, of several, the
-// only one in the agent's dir), else its only pane; away tells it.
+// panes share, as Codex's app server, runs its hooks with the
+// environment of the pane that started it, and under that pane's shell
+// when it started it, which names no pane to trust: then the pane is
+// the one that can only be the agent's, its only pane yet to tell a
+// session (or, of several, the only one in the agent's dir), else its
+// only pane; away tells it.
 func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) {
 	d.mu.Lock()
 	panes := make([]*pane, 0, len(d.panes))
@@ -174,7 +181,7 @@ func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) 
 		}
 		p.mu.Unlock()
 	}
-	for i := 0; i < 64 && pid > 1; i++ {
+	for i := 0; i < 64 && pid > 1 && !sharedService(pid); i++ {
 		if p := byShell[pid]; p != nil {
 			return p, false
 		}
@@ -191,6 +198,14 @@ func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) 
 		return running[0], true
 	}
 	return nil, true
+}
+
+// sharedService tells a process of an agent's service that panes share:
+// Codex's app server as the daemon its TUIs connect to (daemon_auto_start),
+// which the first pane to run Codex starts, and runs every pane's hooks.
+func sharedService(pid int) bool {
+	args := procArgs(pid)
+	return slices.Contains(args, "app-server") && slices.Contains(args, "--managed-daemon")
 }
 
 // focusedLocked returns a session's focused pane, else its first; d.mu is
@@ -268,7 +283,16 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 		}
 	}
 	d.mu.Unlock()
-	s := &session{id: newID(), project: project, name: strings.TrimSpace(p.Name), created: time.Now().UnixMilli()}
+	var wt *proto.Worktree
+	if p.Worktree != "" {
+		// In the project of the repository, where the sidebar shows it
+		// under its branch's name.
+		if wt, err = d.addWorktree(dir, p.Worktree, p.Base); err != nil {
+			return proto.Session{}, err
+		}
+		dir = wt.Path
+	}
+	s := &session{id: newID(), project: project, name: strings.TrimSpace(p.Name), created: time.Now().UnixMilli(), worktree: wt}
 	pn, err := d.startPane(s.id, p, dir)
 	if err != nil {
 		return proto.Session{}, err
@@ -425,7 +449,6 @@ func (d *Daemon) move(p proto.MoveParams) error {
 	}
 	if p.Project != "" {
 		s.project = d.projectFor(p.Project, "")
-		s.pinned = true
 	}
 	i := slices.Index(d.sessions, s)
 	d.sessions = slices.Delete(d.sessions, i, i+1)
@@ -444,46 +467,6 @@ func (d *Daemon) move(p proto.MoveParams) error {
 	}
 	d.sessions = slices.Insert(d.sessions, at, s)
 	return nil
-}
-
-// regroup puts a session under the project of dir, as its shell moves
-// there or its agent starts there: the project whose folder holds dir,
-// else the one of the repository dir is in, made for it. A folder of no
-// project, as /tmp, leaves the session where it is, so that a cd through
-// one makes no group; and a session the user moved by hand stays where
-// they put it. It reports whether it moved the session.
-func (d *Daemon) regroup(sid, dir string) bool {
-	if dir == "" || !settings.Load().GroupByFolder {
-		return false
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	s := d.findSessionLocked(sid)
-	if s == nil || s.pinned {
-		return false
-	}
-	project, repo := d.projectAt(dir)
-	if project == "" {
-		if !repo {
-			return false
-		}
-		project = d.newProject(repoRoot(dir))
-	}
-	if project == s.project {
-		return false
-	}
-	s.project = project
-	i := slices.Index(d.sessions, s)
-	d.sessions = slices.Delete(d.sessions, i, i+1)
-	// After the other sessions of the project, as a move by hand.
-	at := len(d.sessions)
-	for j, o := range d.sessions {
-		if o.project == project {
-			at = j + 1
-		}
-	}
-	d.sessions = slices.Insert(d.sessions, at, s)
-	return true
 }
 
 // sameLeaves reports whether a layout shows exactly a session's panes.

@@ -43,9 +43,13 @@ type pane struct {
 	proc         *ptyProc
 	term         *terminal.Terminal
 	clients      map[*attachment]struct{}
-	shellPID     int
-	fgPGID       int
-	cwdAt        time.Time
+	// claimer is the client the user claimed the pane in last (claim), nil
+	// once it detached; stamp orders the clients' asks and claims.
+	claimer  *attachment
+	stamp    uint64
+	shellPID int
+	fgPGID   int
+	cwdAt    time.Time
 
 	dirty bool // output since the history on disk
 	// seen is what the screen showed when the status last came from it,
@@ -71,10 +75,6 @@ type pane struct {
 	changed  chan struct{} // closed and replaced on every status change
 	// framing tells that frames for the clients are due, after output.
 	framing bool
-	// groupDir is the folder the pane moved to, as its shell cd'd or its
-	// agent started, whose project the session joins: tickLoop takes it,
-	// outside this pane's lock.
-	groupDir string
 }
 
 // headless connects the daemon's emulator to the program: it reads
@@ -143,7 +143,11 @@ func newPane(d *Daemon, sid string, info proto.Pane) (*pane, error) {
 func (s *pane) start(command []string, env []string) error {
 	shell := userShell()
 	name := shellName(shell)
-	args := shellArgs(shell, command)
+	bin := s.d.binFirst()
+	args := shellArgs(shell, bin, command)
+	if bin != "" && name == "zsh" {
+		env = append(env[:len(env):len(env)], zshEnv(bin)...)
+	}
 	dir := s.info.Dir
 	if st, err := os.Stat(dir); dir == "" || err != nil || !st.IsDir() {
 		dir = proto.Home()
@@ -152,6 +156,9 @@ func (s *pane) start(command []string, env []string) error {
 		Path: shell, Args: args, Dir: dir,
 		Env:  s.d.environment(s.sid, s.info.ID, shell, env),
 		Cols: s.info.Cols, Rows: s.info.Rows,
+		// The pane's terminal answers the console's question of where
+		// its cursor is: under a restored pane's history.
+		InheritCursor: true,
 	})
 	if err != nil {
 		return err
@@ -242,7 +249,7 @@ func (s *pane) onNotify(title, body string) {
 		}
 		return
 	}
-	go s.d.notice(proto.Notice{Session: s.sid, Title: title, Body: body})
+	go s.d.notice(proto.Notice{Session: s.sid, Pane: s.info.ID, Title: title, Body: body})
 }
 
 // flag marks the pane as needing the user, as "kero notify" asks; s.mu
@@ -322,13 +329,13 @@ func (s *pane) tick(now time.Time) bool {
 			proc = agent
 		}
 	}
-	agentStarted := agent != "" && agent != s.info.Agent
 	if proc == "" && s.info.Process != "" {
 		// The program ended: its live reports go with it, and an agent's
 		// session is no more to resume.
 		s.dropLive()
 		s.progress = ""
 		if s.info.AgentSession != nil {
+			s.d.noteEnded(s)
 			s.info.AgentSession = nil
 			s.d.save()
 		}
@@ -343,19 +350,16 @@ func (s *pane) tick(now time.Time) bool {
 		s.seen, s.looked = "", false
 		changed = true
 	}
-	// The shell's folder, every tick, so that a cd groups the session at
-	// once rather than at the shell's next turn.
-	moved := false
-	if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
-		s.info.Dir = dir
-		changed, moved = true, true
-		s.d.save()
-		s.d.git.poke(dir)
-	}
-	// The program's own, from its group's leader, as an agent's that went
-	// into a worktree: the shell under it stays where it was.
-	if agentStarted || now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
+	if now.Sub(s.cwdAt) > 1500*time.Millisecond || proc == "" && s.info.ProcessDir != "" {
 		s.cwdAt = now
+		if dir := procCwd(s.shellPID); dir != "" && dir != s.info.Dir {
+			s.info.Dir = dir
+			changed = true
+			s.d.save()
+			s.d.git.poke(dir)
+		}
+		// The program's own, from its group's leader, as an agent's that
+		// went into a worktree: the shell under it stays where it was.
 		pdir := ""
 		if proc != "" {
 			pdir = procCwd(pg)
@@ -369,24 +373,10 @@ func (s *pane) tick(now time.Time) bool {
 			s.d.git.poke(s.info.WorkDir())
 		}
 	}
-	if moved || agentStarted {
-		s.groupDir = s.info.WorkDir()
-	}
 	if s.look(now) {
 		changed = true
 	}
 	return changed
-}
-
-// takeGroupDir returns the folder the pane moved to, whose project the
-// session joins, and clears it: tickLoop moves the session, as the
-// daemon's lock comes after the pane's.
-func (s *pane) takeGroupDir() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	dir := s.groupDir
-	s.groupDir = ""
-	return dir
 }
 
 // look sets the status from what the screen shows, when it may have
@@ -525,11 +515,71 @@ func (d *Daemon) useTheme(t proto.Theme) {
 }
 
 func (s *pane) resize(cols, rows, cellW, cellH int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resizeLocked(cols, rows, cellW, cellH)
+}
+
+// ask takes the size a client's terminal fits, which the pane takes when
+// the client sizes it (sizer); s.mu is not held.
+func (s *pane) ask(c *attachment, cols, rows, cellW, cellH int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c.asked = [4]int{cols, rows, cellW, cellH}
+	s.stamp++
+	c.askedAt = s.stamp
+	s.fit()
+}
+
+// claim gives the pane's size to the client the user is in, typing in it
+// or showing it as they use the machine (proto.FrameClaim): the pane takes
+// the size it asked for last, and the sizes others ask for wait until
+// they claim it again. A pane has one size, and a layout synced from the
+// app the user is in resizes another machine's app's panes too, whose
+// sizes would take it.
+func (s *pane) claim(c *attachment) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimer == c {
+		return
+	}
+	if _, ok := s.clients[c]; !ok {
+		return
+	}
+	s.claimer = c
+	s.stamp++
+	c.claimed = s.stamp
+	s.fit()
+}
+
+// sizer returns the client whose size the pane takes: of those that
+// asked one, the one claimed in last, else, none claimed, the one that
+// asked last. s.mu is held.
+func (s *pane) sizer() *attachment {
+	var best *attachment
+	for c := range s.clients {
+		if c.asked[0] <= 0 {
+			continue
+		}
+		if best == nil || c.claimed > best.claimed || c.claimed == best.claimed && c.askedAt > best.askedAt {
+			best = c
+		}
+	}
+	return best
+}
+
+// fit gives the pane its sizer's size; s.mu is held.
+func (s *pane) fit() {
+	if c := s.sizer(); c != nil {
+		s.resizeLocked(c.asked[0], c.asked[1], c.asked[2], c.asked[3])
+	}
+}
+
+// resizeLocked resizes the pane's terminal and program; s.mu is held.
+func (s *pane) resizeLocked(cols, rows, cellW, cellH int) {
 	if cols <= 0 || rows <= 0 {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed || s.term == nil {
 		return
 	}
@@ -690,6 +740,7 @@ func (s *pane) close() {
 		return
 	}
 	s.closed = true
+	s.d.noteEnded(s)
 	close(s.changed) // wakes those waiting on it
 	s.changed = make(chan struct{})
 	proc := s.proc
@@ -740,6 +791,12 @@ func (s *pane) detach(c *attachment) {
 		delete(s.clients, c)
 		c.mirror.Close()
 	}
+	if s.claimer == c {
+		s.claimer = nil
+	}
+	// The client left, the user's of those left takes the pane, as one
+	// left on another machine would show it cut off at the gone one's.
+	s.fit()
 	s.mu.Unlock()
 }
 
@@ -786,9 +843,14 @@ func (s *pane) readText(scrollback bool, lines int) string {
 type attachment struct {
 	conn   net.Conn
 	mirror *terminal.Mirror // what its terminal shows of the session's
-	out    chan []byte
-	once   sync.Once
-	done   chan struct{}
+	// asked is the size its terminal fits (pane.ask), askedAt and claimed
+	// when it asked it and the user last claimed the pane in it
+	// (pane.stamp); pane.mu guards them.
+	asked            [4]int
+	askedAt, claimed uint64
+	out              chan []byte
+	once             sync.Once
+	done             chan struct{}
 }
 
 func newAttachment(conn net.Conn) *attachment {
