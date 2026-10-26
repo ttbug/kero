@@ -151,6 +151,14 @@
   },
   "restartServiceDetail": "Every pane’s program ends; the shells start again in their folders, under their history.",
   "sidebarOtherProject": "Other",
+  "sidebarTasks": "{count, plural, one {# session} other {# sessions}}",
+  "@sidebarTasks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sidebarHide": "Hide Sidebar",
   "sidebarShow": "Show Sidebar",
   "sidebarNoSessions": "No sessions",
@@ -205,6 +213,7 @@
   "statusConnectingLabel": "Connecting",
   "statusDisconnected": "Disconnected",
   "statusWorking": "Working",
+  "statusReady": "Ready",
   "statusNeedsYou": "Needs you",
   "statusExited": "Exited",
   "statusFailed": "Failed",

@@ -60,7 +60,7 @@ type prefs struct {
 }
 
 const (
-	defaultSidebar = 268
+	defaultSidebar = 300
 	minSidebar     = 200
 	maxSidebar     = 440
 	defaultFont    = 13
@@ -469,6 +469,15 @@ func (a *App) groups() []group {
 		gs = append(gs, a.hostGroups(h)...)
 	}
 	return gs
+}
+
+// sessionCount is how many sessions the sidebar lists, for its total.
+func (a *App) sessionCount() int {
+	n := 0
+	for _, g := range a.groups() {
+		n += len(g.sessions)
+	}
+	return n
 }
 
 // hostGroups returns a host's projects, with their sessions.

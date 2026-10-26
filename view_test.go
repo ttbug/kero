@@ -19,7 +19,6 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 
-	"kero/internal/actions"
 	"kero/internal/proto"
 
 	"kero/locales"
@@ -364,11 +363,11 @@ func TestSessionTooltipAtPointer(t *testing.T) {
 		a.st.Sessions[0].Dir = "/Users/someone/dev/kero"
 		tt := ui.NewTester(a.view, 1100, 700)
 		tt.Frame()
-		r, ok := tt.Find("1") // the project header's count, above the row
+		r, ok := tt.Find("demo") // the project header, above the row
 		if !ok {
 			t.Fatal("no project header")
 		}
-		x, y := 12+dx, r.Y+r.H/2+34 // the session row's middle
+		x, y := 12+dx, r.Y+r.H/2+42 // the session row's middle
 		tt.Move(x, y)
 		tt.Advance(2 * time.Second)
 		tt.Frame()
@@ -789,34 +788,5 @@ func TestCommandKeysEditLine(t *testing.T) {
 		if o.OnKey(k.mods, k.key) {
 			t.Errorf("%v+%v taken", k.mods, k.key)
 		}
-	}
-}
-
-// A long name in a narrow sidebar ends in an ellipsis: the time beside
-// it, and the ⌘ shortcut in its place, show whole.
-func TestSidebarRowKeepsTime(t *testing.T) {
-	widths := func(name string) (ago, key float32) {
-		a := testApp(t)
-		a.prefs.SidebarWidth = minSidebar
-		tt := ui.NewTester(a.view, 1100, 640)
-		a.st.Sessions[0].Name = name
-		a.st.Sessions[0].Since = tt.Now().Add(-3 * time.Hour).UnixMilli()
-		tt.Frame()
-		r, ok := tt.Find(locales.AgoHours(3))
-		if !ok {
-			t.Fatalf("%q: no time shown", name)
-		}
-		tt.HoldModifiers(ui.Cmd)
-		tt.Frame()
-		k, ok := tt.Find(actions.Glyphs("CmdOrCtrl+1"))
-		if !ok {
-			t.Fatalf("%q: no shortcut shown", name)
-		}
-		return r.W, k.W
-	}
-	t0, k0 := widths("demo")
-	t1, k1 := widths("Investigate why the session list truncates long generated titles")
-	if t1 < t0 || k1 < k0 {
-		t.Errorf("with a long name, the time is %g wide (want %g) and the shortcut %g (want %g)", t1, t0, k1, k0)
 	}
 }

@@ -51,6 +51,11 @@ type palette struct {
 	onDone    ui.Color
 	danger    ui.Color
 	accent    ui.Color
+	success   ui.Color // a session running, ready or done
+	// branchChip and branchText are the branch a project's sessions share,
+	// beside its name in the sidebar.
+	branchChip ui.Color
+	branchText ui.Color
 
 	overlay   ui.Color // behind dialogs
 	popover   ui.Color
@@ -88,6 +93,10 @@ var lightPalette = palette{
 	onDone:    ui.Hex("#ffffff"),
 	danger:    ui.Hex("#d93a35"),
 	accent:    ui.Hex("#3b6cf6"),
+	success:   ui.Hex("#1f9d55"),
+
+	branchChip: ui.RGBA(99, 91, 255, 0.10),
+	branchText: ui.Hex("#6b5ce7"),
 
 	overlay:   ui.RGBA(10, 10, 30, 0.12),
 	popover:   ui.Hex("#ffffff"),
@@ -128,6 +137,10 @@ var darkPalette = palette{
 	onDone:    ui.Hex("#161618"),
 	danger:    ui.Hex("#ff6961"),
 	accent:    ui.Hex("#6b93ff"),
+	success:   ui.Hex("#4ec97a"),
+
+	branchChip: ui.RGBA(139, 124, 246, 0.18),
+	branchText: ui.Hex("#a99bf5"),
 
 	overlay:   ui.RGBA(0, 0, 0, 0.35),
 	popover:   ui.Hex("#232327"),

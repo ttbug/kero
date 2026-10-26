@@ -1086,6 +1086,16 @@ func (msgs Messages) SidebarOtherProject() string {
 	return Catalog.Format(msgs.locale, "sidebarOtherProject", nil)
 }
 
+// SidebarTasks says "{count, plural, one {# session} other {# sessions}}"
+// in the language the app shows.
+func SidebarTasks(count int) string { return In(i18n.Locale()).SidebarTasks(count) }
+
+// SidebarTasks says "{count, plural, one {# session} other {# sessions}}"
+// in the language of msgs.
+func (msgs Messages) SidebarTasks(count int) string {
+	return Catalog.Format(msgs.locale, "sidebarTasks", map[string]any{"count": count})
+}
+
 // SidebarHide says "Hide Sidebar"
 // in the language the app shows.
 func SidebarHide() string { return In(i18n.Locale()).SidebarHide() }
@@ -1344,6 +1354,16 @@ func StatusWorking() string { return In(i18n.Locale()).StatusWorking() }
 // in the language of msgs.
 func (msgs Messages) StatusWorking() string {
 	return Catalog.Format(msgs.locale, "statusWorking", nil)
+}
+
+// StatusReady says "Ready"
+// in the language the app shows.
+func StatusReady() string { return In(i18n.Locale()).StatusReady() }
+
+// StatusReady says "Ready"
+// in the language of msgs.
+func (msgs Messages) StatusReady() string {
+	return Catalog.Format(msgs.locale, "statusReady", nil)
 }
 
 // StatusNeedsYou says "Needs you"

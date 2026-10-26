@@ -103,6 +103,14 @@
   "restartStaleDetail": "セッションを実行しているサービスはまだ Kero {was} で、このアプリは Kero {version} です。{running}: 再起動するとそれらは終了し、セッションは履歴とともに元の場所から再開します。",
   "restartServiceDetail": "すべてのペインのプログラムが終了します。シェルは履歴とともに、それぞれのフォルダで再び起動します。",
   "sidebarOtherProject": "その他",
+  "sidebarTasks": "タスク {count}",
+  "@sidebarTasks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sidebarHide": "サイドバーを隠す",
   "sidebarShow": "サイドバーを表示",
   "sidebarNoSessions": "セッションなし",
@@ -129,6 +137,7 @@
   "statusConnectingLabel": "接続中",
   "statusDisconnected": "切断されました",
   "statusWorking": "作業中",
+  "statusReady": "待機",
   "statusNeedsYou": "対応待ち",
   "statusExited": "終了",
   "statusFailed": "失敗",

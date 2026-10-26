@@ -108,13 +108,3 @@ func sessionGit(s *proto.Session) *proto.GitInfo {
 	}
 	return nil
 }
-
-// offBranch is the branch to show by a session's name in the sidebar: one
-// other than its repository's default, as an agent's in a worktree of its
-// own; "" for the default, which every other session is on.
-func offBranch(g *proto.GitInfo) string {
-	if g == nil || g.Default == "" || g.Branch == g.Default {
-		return ""
-	}
-	return branchName(g)
-}
