@@ -445,12 +445,7 @@ func (a *App) groupView(c *ui.Context, pal *palette, g group, gi int, n *int) {
 		chev.Rotate(turn)
 	})
 	if collapsed {
-		// The session shown stays in view.
-		for _, s := range g.sessions {
-			if s.ID == a.selected {
-				a.sessionRow(c, pal, s, n, true)
-			}
-		}
+		// Every session goes with the header, the one shown included.
 		return
 	}
 	for i, s := range g.sessions {

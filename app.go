@@ -513,17 +513,49 @@ func (a *App) hostGroups(h *host) []group {
 func (a *App) collapsed(g group) bool { return a.prefs.Collapsed[g.key()] }
 
 // visibleOrder returns the sessions in the sidebar's order, those of
-// collapsed projects left out unless selected.
+// collapsed projects left out, the selected one too.
 func (a *App) visibleOrder() []string {
 	var ids []string
 	for _, g := range a.groups() {
+		if a.collapsed(g) {
+			continue
+		}
 		for _, s := range g.sessions {
-			if !a.collapsed(g) || s.ID == a.selected {
-				ids = append(ids, s.ID)
-			}
+			ids = append(ids, s.ID)
 		}
 	}
 	return ids
+}
+
+// neighbor returns the session that takes a closed session's place in
+// the sidebar: the next one shown, else the one before. The closed one
+// may be folded away with its project, so the search runs over the
+// sidebar's whole order.
+func (a *App) neighbor(id string) string {
+	var before, after string
+	closed := false
+	for _, g := range a.groups() {
+		for _, s := range g.sessions {
+			if s.ID == id {
+				closed = true
+				continue
+			}
+			if a.collapsed(g) {
+				continue
+			}
+			if closed {
+				if after == "" {
+					after = s.ID
+				}
+			} else {
+				before = s.ID
+			}
+		}
+	}
+	if after != "" {
+		return after
+	}
+	return before
 }
 
 func (a *App) selectSession(id string) {
@@ -1308,14 +1340,7 @@ func (a *App) endSession(id string, p proto.CloseParams) {
 	h := a.hostOf(id)
 	if id == a.selected {
 		// The next session takes its place, else the one before.
-		ids := a.visibleOrder()
-		i := slices.Index(ids, id)
-		next := ""
-		if i >= 0 && i+1 < len(ids) {
-			next = ids[i+1]
-		} else if i > 0 {
-			next = ids[i-1]
-		}
+		next := a.neighbor(id)
 		a.selected = next
 		if next != "" {
 			a.selectSession(next)

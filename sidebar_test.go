@@ -27,6 +27,57 @@ func TestSidebarBrandAndTasks(t *testing.T) {
 	}
 }
 
+// A project folds all its sessions away, the one shown included, which
+// stays shown in the window.
+func TestFoldHidesSelected(t *testing.T) {
+	a := testApp(t)
+	a.local().conn = connReady
+	a.st.Sessions[0].Name = "wombat"
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.Frame()
+	if !tt.HasText("wombat") {
+		t.Fatalf("the row is missing before the fold: %q", tt.Texts())
+	}
+	a.toggleProject("p1")
+	tt.Frame()
+	if tt.HasText("wombat") {
+		t.Errorf("the row stays after the fold: %q", tt.Texts())
+	}
+	if a.selected != "s1" {
+		t.Errorf("the shown session changed to %q", a.selected)
+	}
+	if ids := a.visibleOrder(); len(ids) != 0 {
+		t.Errorf("visible order %q", ids)
+	}
+	a.toggleProject("p1")
+	tt.Frame()
+	if !tt.HasText("wombat") {
+		t.Errorf("the row is missing after the unfold: %q", tt.Texts())
+	}
+}
+
+// Closing a session hands the window to the next one the sidebar shows,
+// else the one before, including when the closed one was folded away.
+func TestNeighbor(t *testing.T) {
+	a := testApp(t)
+	a.st.Projects = append(a.st.Projects, proto.Project{ID: "p2", Name: "next", Dir: "/tmp"})
+	a.st.Sessions = append(a.st.Sessions, proto.Session{ID: "s2", Project: "p2", Name: "next"})
+	if got := a.neighbor("s1"); got != "s2" {
+		t.Errorf("next %q, want s2", got)
+	}
+	if got := a.neighbor("s2"); got != "s1" {
+		t.Errorf("before %q, want s1", got)
+	}
+	a.prefs.Collapsed = map[string]bool{"p1": true}
+	if got := a.neighbor("s1"); got != "s2" {
+		t.Errorf("folded, next %q, want s2", got)
+	}
+	a.prefs.Collapsed["p2"] = true
+	if got := a.neighbor("s1"); got != "" {
+		t.Errorf("all folded, %q, want none", got)
+	}
+}
+
 // A project's header shows the one branch its sessions share, and none
 // when they tell of several.
 func TestGroupBranch(t *testing.T) {
