@@ -128,6 +128,41 @@ func TestProjectForRepositoryUnderHome(t *testing.T) {
 	}
 }
 
+// A plain folder gets a group of its own, as a repository does, even
+// when a group the daemon made holds the folder above it; a project the
+// user opened holds everything in it.
+func TestProjectForPlainDirectory(t *testing.T) {
+	d := followTestDaemon(t)
+	dirs := mkdirs(t, "auto", "auto/inner", "mine", "mine/inner")
+	auto, inner, mine, mineInner := dirs[0], dirs[1], dirs[2], dirs[3]
+
+	s, err := d.create(proto.CreateParams{Dir: auto})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.panes[s.Panes[0].ID]
+	setPaneDir(t, p, inner)
+	if !d.follow(p) {
+		t.Fatal("follow didn't move the session into the plain folder")
+	}
+	got := sessionProject(t, d, s.ID)
+	if pr, ok := projectByID(t, d, got); !ok || pr.Name != "inner" || pr.Dir != inner || !pr.Auto {
+		t.Errorf("a plain folder under an auto group = %+v, want the auto project inner at it", pr)
+	}
+
+	// The directory itself keeps its group when the shell stays in it.
+	if _, err := createProject(t, d, proto.ProjectParams{Dir: mine, Name: "Mine"}); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := d.create(proto.CreateParams{Dir: mineInner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr, _ := projectByID(t, d, s2.Project); pr.Name != "Mine" {
+		t.Errorf("a folder under the user's project is in %+v, want Mine", pr)
+	}
+}
+
 // A session starts in the project of its directory, and moves with its
 // shell into the project of a directory the shell cds to once that
 // directory has stayed put; the project it left goes if the daemon made

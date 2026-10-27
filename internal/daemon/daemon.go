@@ -397,6 +397,13 @@ func (d *Daemon) projectFor(ref, dir string) string {
 		if repo && repoRoot(p.Dir) != root {
 			continue
 		}
+		// A group the daemon made for a directory holds that directory,
+		// not the ones under it: a plain folder cd'd into gets a group of
+		// its own, as a repository does. A project the user opened holds
+		// everything in it.
+		if p.Auto && !repo && !(proto.Within(dir, p.Dir) && proto.Within(p.Dir, dir)) {
+			continue
+		}
 		best, bestLen = p.ID, len(p.Dir)
 	}
 	if best != "" {
