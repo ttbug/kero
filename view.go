@@ -264,9 +264,9 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 	ui.Column(c.Key("brand")).Shrink(0).Margin(-13, 0, 0, 0).Padding(6, 12, 12, 14).Gap(3).DragWindow().Children(func() {
 		ui.Row(c.Key("wordmark")).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, terminalIcon).Size(25, 25).TextColor(pal.accent)
-			ui.Text(c, "One").FontSize(24).FontWeight(700).TextColor(pal.text).SingleLine()
+			ui.Text(c, "Xview").FontSize(24).FontWeight(700).TextColor(pal.text).SingleLine()
 		})
-		ui.Text(c, "All agents in one.").FontSize(12).TextColor(pal.textMuted).SingleLine()
+		ui.Text(c, "All In One 终端工作台").FontSize(12).TextColor(pal.textMuted).SingleLine()
 	})
 	// The space between and below the rows moves the window, as the top
 	// bar does.

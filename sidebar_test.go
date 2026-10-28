@@ -20,7 +20,7 @@ func TestSidebarBrandAndTasks(t *testing.T) {
 	tt.Frame()
 	shot(t, tt, "sidebar")
 	texts := strings.Join(tt.Texts(), "\n")
-	for _, want := range []string{"One", "All agents in one.", locales.SidebarTasks(1), locales.StatusReady()} {
+	for _, want := range []string{"Xview", "All In One 终端工作台", locales.SidebarTasks(1), locales.StatusReady()} {
 		if !strings.Contains(texts, want) {
 			t.Errorf("the sidebar says none of %q; texts %q", want, tt.Texts())
 		}
