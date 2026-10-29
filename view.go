@@ -4,6 +4,7 @@ import (
 	"math"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -23,6 +24,7 @@ const (
 	headerH = 2 * (barMid - cardGap)
 	cardGap = 8 // around the card
 	rowH    = 34
+	rowH2   = 48 // a detailed row, of two lines
 	// rowInset is where a sidebar row's text starts: a session's name and
 	// its group's.
 	rowInset = 12
@@ -490,8 +492,13 @@ func groupBranch(g group) string {
 func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, last bool) {
 	*n++
 	selected := s.ID == a.selected
+	detailed := a.set.SidebarRows != "compact"
 	h := a.hostOf(s.ID)
-	row := ui.Row(c.Key(s.ID)).Height(rowH).Padding(0, 8, 0, 0).AlignItems(ui.Center).Radius(8).Margin(0, 0, 1, 0)
+	height := float32(rowH)
+	if detailed {
+		height = rowH2
+	}
+	row := ui.Row(c.Key(s.ID)).Height(height).Padding(0, 8, 0, 0).AlignItems(ui.Center).Radius(8).Margin(0, 0, 1, 0)
 	hovered := row.Hovered()
 	if pal.dark {
 		// Room for the chosen row's edge in every row, so that choosing
@@ -550,28 +557,52 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 		// mark and its name: the row tells only what the session is.
 		a.sessionTree(c, pal, last)
 		ui.Icon(c, programIcon(&s.Pane)).Size(14, 14).TextColor(pal.textMuted).Shrink(0).Margin(0, 7, 0, 0)
-		name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.text)
-		if s.Unread {
-			name.FontWeight(650)
-		}
-		if s.Status == proto.Exited && !s.Unread {
-			name.TextColor(pal.textMuted)
-		}
-		ui.Spacer(c)
-		ui.Row(c.Key("status")).Gap(6).AlignItems(ui.Center).Children(func() {
-			statusDot(c, pal, s, 7)
-			ui.Text(c, sessionStatusLabel(s)).FontSize(11).FontWeight(500).TextColor(sessionStatusColor(pal, s)).SingleLine().Shrink(0)
-			if hovered {
-				cl := ui.ButtonBase(c.Key("close")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.ActionCloseSession()).Tooltip(locales.ActionCloseSession())
-				if cl.Hovered() {
-					cl.Background(pal.rowHover).TextColor(pal.text)
-				}
-				cl.Children(func() { ui.Icon(c, closeIcon).Size(12, 12) })
-				if cl.Clicked() {
-					a.defer_(func() { a.closeSession(s.ID, true) })
-				}
+		name := func() {
+			name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.text)
+			if s.Unread {
+				name.FontWeight(650)
 			}
-		})
+			if s.Status == proto.Exited && !s.Unread {
+				name.TextColor(pal.textMuted)
+			}
+		}
+		status := func() {
+			ui.Row(c.Key("status")).Gap(6).AlignItems(ui.Center).Children(func() {
+				statusDot(c, pal, s, 7)
+				ui.Text(c, sessionStatusLabel(s)).FontSize(11).FontWeight(500).TextColor(sessionStatusColor(pal, s)).SingleLine().Shrink(0)
+				if hovered {
+					cl := ui.ButtonBase(c.Key("close")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.ActionCloseSession()).Tooltip(locales.ActionCloseSession())
+					if cl.Hovered() {
+						cl.Background(pal.rowHover).TextColor(pal.text)
+					}
+					cl.Children(func() { ui.Icon(c, closeIcon).Size(12, 12) })
+					if cl.Clicked() {
+						a.defer_(func() { a.closeSession(s.ID, true) })
+					}
+				}
+			})
+		}
+		if detailed {
+			// What the session is at goes under its name, on a line of the
+			// whole row's width.
+			ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					name()
+					ui.Spacer(c)
+					status()
+				})
+				line, msg := rowDetail(s, g, h.shortDir(s.WorkDir()))
+				fg := pal.textFaint
+				if msg {
+					fg = pal.textMuted
+				}
+				ui.Text(c, line).FontSize(12).TextColor(fg).SingleLine().Ellipsis("…").MinWidth(0)
+			})
+		} else {
+			name()
+			ui.Spacer(c)
+			status()
+		}
 	})
 }
 
@@ -633,6 +664,20 @@ func sessionStatusColor(pal *palette, s *proto.Session) ui.Color {
 		return pal.textFaint
 	}
 	return pal.success
+}
+
+// rowDetail is the second line of a session's detailed row: its program's
+// status message, else its worktree's branch and changes, else its folder,
+// dir. msg tells it is a message, which reads stronger than the others.
+func rowDetail(s *proto.Session, g *proto.GitInfo, dir string) (line string, msg bool) {
+	if s.Message != "" {
+		// A notification's text can run over lines: the row has one.
+		return strings.Join(strings.Fields(s.Message), " "), true
+	}
+	if g != nil {
+		return gitSummary(g), false
+	}
+	return dir, false
 }
 
 // renameStarted keeps a rename from ending in the frame it began in,
