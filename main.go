@@ -76,6 +76,7 @@ func runApp() {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
+	cli.SyncSkill()
 	// Updates from Kero's GitHub releases, in a window of native UI.
 	mygo.Use(native.Plugin)
 	a := newApp()
@@ -112,6 +113,7 @@ func runApp() {
 	mygo.App.OnWindowAllClosed(a.lastWindowClosed)
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
 		a.savePrefs()
+		a.backupOnQuit()
 	})
 	// Windows leaves an icon in the notification area after its app until
 	// the pointer passes over it.
