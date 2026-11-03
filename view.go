@@ -306,8 +306,9 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 	})
 	// The brand, as the sidebar's reference has it: a mark and a wordmark
 	// over a tagline, at the top of the list. It starts in the empty lower
-	// half of the title bar's row, as the reference puts it.
-	ui.Column(c.Key("brand")).Shrink(0).Margin(-13, 0, 0, 0).Padding(6, 12, 12, 14).Gap(3).DragWindow().Children(func() {
+	// half of the title bar's row, as the reference puts it, and sits in
+	// the middle of the sidebar, the list below it starting at the left.
+	ui.Column(c.Key("brand")).Shrink(0).Margin(-13, 0, 0, 0).Padding(6, 12, 12, 14).Gap(3).DragWindow().AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("wordmark")).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, terminalIcon).Size(25, 25).TextColor(pal.accent)
 			ui.Text(c, "Xview").FontSize(24).FontWeight(700).TextColor(pal.text).SingleLine()
