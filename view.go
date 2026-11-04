@@ -570,6 +570,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 	if row.DoubleClicked() {
 		a.startRename(s.ID)
 	}
+	expanded := len(s.Panes) > 1 && a.prefs.Expanded[s.ID]
 	tip := h.shortDir(s.WorkDir())
 	if s.Process != "" {
 		tip = s.Process + " · " + tip
@@ -601,7 +602,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 		// The tree puts the session under its project, then its program's
 		// mark and its name: the row tells only what the session is.
 		a.sessionTree(c, pal, last)
-		ui.Icon(c, programIcon(&s.Pane)).Size(14, 14).TextColor(pal.textMuted).Shrink(0).Margin(0, 7, 0, 0)
+		ui.Icon(c, programIcon(&s.Pane)).Size(14, 14).TextColor(programColor(pal, &s.Pane)).Shrink(0).Margin(0, 7, 0, 0)
 		name := func() {
 			name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13.5).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.text)
 			if s.Unread {
@@ -609,6 +610,9 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 			}
 			if s.Status == proto.Exited && !s.Unread {
 				name.TextColor(pal.textMuted)
+			}
+			if len(s.Panes) > 1 {
+				a.panesToggle(c, pal, s, expanded)
 			}
 		}
 		status := func() {
@@ -648,6 +652,108 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 			ui.Spacer(c)
 			status()
 		}
+	})
+	if expanded {
+		for i := range s.Panes {
+			a.paneRow(c, pal, s, &s.Panes[i])
+		}
+	}
+}
+
+// panesToggle is a split session's count of panes by its name, which
+// shows or hides them under its row.
+func (a *App) panesToggle(c *ui.Context, pal *palette, s *proto.Session, expanded bool) {
+	label := locales.SidebarShowPanes()
+	if expanded {
+		label = locales.SidebarHidePanes()
+	}
+	b := ui.ButtonBase(c.Key("panes")).Height(18).Padding(0, 4).Gap(2).Radius(5).AlignItems(ui.Center).Shrink(0).
+		TextColor(pal.textFaint).Label(label).Tooltip(label)
+	if b.Hovered() {
+		b.Background(pal.chip).TextColor(pal.text)
+	}
+	if b.Clicked() {
+		id := s.ID
+		a.defer_(func() { a.toggleSessionPanes(id) })
+	}
+	b.Children(func() {
+		ui.Textf(c, "%d", len(s.Panes)).FontSize(12).FontFeatures("tnum").SingleLine()
+		chev := ui.Icon(c, chevronIcon).Size(9, 9)
+		chev.Rotate(chev.AnimateTo("turn", 90*b2f(expanded), ui.Snappy))
+	})
+}
+
+// paneRow is a pane of an expanded split session, under its row: its
+// program, its name, where it works and its status. A click shows the
+// session with that pane focused.
+func (a *App) paneRow(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pane) {
+	sid, pid := s.ID, p.ID
+	h := a.hostOf(sid)
+	// Indent the pane beneath its session in the project tree.
+	inset := float32(24 + 14 + 10)
+	row := ui.Row(c.Key(sid+"/"+pid)).Height(28).Padding(0, 10, 0, inset).Gap(8).AlignItems(ui.Center).Radius(7).Margin(0, 0, 1, 0)
+	focused := s.ID == a.selected && a.focusOf(s) == pid
+	switch {
+	case focused:
+		row.Background(pal.rowSelected)
+	case row.Hovered():
+		row.Background(pal.rowHover)
+	}
+	if pal.dark {
+		row.Border(1, ui.Transparent)
+	}
+	if h.remote() && h.conn != connReady {
+		row.Opacity(0.55)
+	}
+	if row.Clicked() {
+		a.defer_(func() {
+			s := a.session(sid)
+			if s == nil || s.PaneByID(pid) == nil {
+				return
+			}
+			a.setFocus(s, pid)
+			a.selectSession(sid)
+			a.paneRef(pid).Focus()
+		})
+	}
+	// Where it works: a branch other than the default, else a folder
+	// other than the session's.
+	dir := h.shortDir(p.WorkDir())
+	where := ""
+	if g := p.Git; g != nil && g.Default != "" && g.Branch != g.Default {
+		where = branchName(g)
+	} else if p.WorkDir() != s.WorkDir() && p.WorkDir() != "" {
+		where = proto.DirName(p.WorkDir())
+	}
+	tip := dir
+	if p.Message != "" {
+		tip = p.Message + "\n" + tip
+	}
+	pointerTooltip(c, row, "tip-"+sid+"/"+pid, tip)
+	row.ContextMenu(func(m *ui.Menu) {
+		if s.Zoomed != pid && m.Item(locales.ActionZoomPane()).Chosen() {
+			a.defer_(func() {
+				if s := a.session(sid); s != nil && s.PaneByID(pid) != nil {
+					a.zoomPane(s, pid)
+					a.selectSession(sid)
+				}
+			})
+		}
+		if m.Item(locales.PaneClose()).Chosen() {
+			a.defer_(func() { a.closePane(a.session(sid), pid, true) })
+		}
+	})
+	row.Children(func() {
+		ui.Icon(c, programIcon(p)).Size(13, 13).TextColor(programColor(pal, p)).Shrink(0)
+		name := ui.Text(c, p.PaneName()).FontSize(12.5).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.textMuted)
+		if focused || p.Unread {
+			name.TextColor(pal.text)
+		}
+		if where != "" && where != p.PaneName() {
+			ui.Text(c, where).FontSize(12).TextColor(pal.textFaint).SingleLine().Ellipsis("…").Shrink(3).MinWidth(24).MaxWidth(100)
+		}
+		ui.Spacer(c)
+		statusIconP(c, pal, p.Status, p.Unread, p.Progress, 13)
 	})
 }
 

@@ -1718,6 +1718,26 @@ func (msgs Messages) PaneClose() string {
 	return Catalog.Format(msgs.locale, "paneClose", nil)
 }
 
+// SidebarShowPanes says "Show Panes"
+// in the language the app shows.
+func SidebarShowPanes() string { return In(i18n.Locale()).SidebarShowPanes() }
+
+// SidebarShowPanes says "Show Panes"
+// in the language of msgs.
+func (msgs Messages) SidebarShowPanes() string {
+	return Catalog.Format(msgs.locale, "sidebarShowPanes", nil)
+}
+
+// SidebarHidePanes says "Hide Panes"
+// in the language the app shows.
+func SidebarHidePanes() string { return In(i18n.Locale()).SidebarHidePanes() }
+
+// SidebarHidePanes says "Hide Panes"
+// in the language of msgs.
+func (msgs Messages) SidebarHidePanes() string {
+	return Catalog.Format(msgs.locale, "sidebarHidePanes", nil)
+}
+
 // PaneNeedsPermission says "Needs your permission"
 // in the language the app shows.
 func PaneNeedsPermission() string { return In(i18n.Locale()).PaneNeedsPermission() }
@@ -2290,6 +2310,56 @@ func (msgs Messages) SetAppIconDetail() string {
 	return Catalog.Format(msgs.locale, "setAppIconDetail", nil)
 }
 
+// AwakeTitle says "Keep computer awake"
+// in the language the app shows.
+func AwakeTitle() string { return In(i18n.Locale()).AwakeTitle() }
+
+// AwakeTitle says "Keep computer awake"
+// in the language of msgs.
+func (msgs Messages) AwakeTitle() string {
+	return Catalog.Format(msgs.locale, "awakeTitle", nil)
+}
+
+// AwakeOff says "Off"
+// in the language the app shows.
+func AwakeOff() string { return In(i18n.Locale()).AwakeOff() }
+
+// AwakeOff says "Off"
+// in the language of msgs.
+func (msgs Messages) AwakeOff() string {
+	return Catalog.Format(msgs.locale, "awakeOff", nil)
+}
+
+// AwakeOn says "Always"
+// in the language the app shows.
+func AwakeOn() string { return In(i18n.Locale()).AwakeOn() }
+
+// AwakeOn says "Always"
+// in the language of msgs.
+func (msgs Messages) AwakeOn() string {
+	return Catalog.Format(msgs.locale, "awakeOn", nil)
+}
+
+// AwakeAgents says "While agents work"
+// in the language the app shows.
+func AwakeAgents() string { return In(i18n.Locale()).AwakeAgents() }
+
+// AwakeAgents says "While agents work"
+// in the language of msgs.
+func (msgs Messages) AwakeAgents() string {
+	return Catalog.Format(msgs.locale, "awakeAgents", nil)
+}
+
+// AwakeDetail says "Kero keeps this computer from sleeping as long as it runs, or while an agent on it works. Closing a Mac’s lid still…"
+// in the language the app shows.
+func AwakeDetail() string { return In(i18n.Locale()).AwakeDetail() }
+
+// AwakeDetail says "Kero keeps this computer from sleeping as long as it runs, or while an agent on it works. Closing a Mac’s lid still…"
+// in the language of msgs.
+func (msgs Messages) AwakeDetail() string {
+	return Catalog.Format(msgs.locale, "awakeDetail", nil)
+}
+
 // TrayOpen says "Open {app}"
 // in the language the app shows.
 func TrayOpen(app string) string { return In(i18n.Locale()).TrayOpen(app) }
@@ -2762,6 +2832,26 @@ func SetLigaturesDetail() string { return In(i18n.Locale()).SetLigaturesDetail()
 // in the language of msgs.
 func (msgs Messages) SetLigaturesDetail() string {
 	return Catalog.Format(msgs.locale, "setLigaturesDetail", nil)
+}
+
+// SetFontFeatures says "Font features"
+// in the language the app shows.
+func SetFontFeatures() string { return In(i18n.Locale()).SetFontFeatures() }
+
+// SetFontFeatures says "Font features"
+// in the language of msgs.
+func (msgs Messages) SetFontFeatures() string {
+	return Catalog.Format(msgs.locale, "setFontFeatures", nil)
+}
+
+// SetFontFeaturesDetail says "OpenType features, as Ghostty’s font-feature: ss01 turns one on, -calt off, cv05=2 picks an alternate."
+// in the language the app shows.
+func SetFontFeaturesDetail() string { return In(i18n.Locale()).SetFontFeaturesDetail() }
+
+// SetFontFeaturesDetail says "OpenType features, as Ghostty’s font-feature: ss01 turns one on, -calt off, cv05=2 picks an alternate."
+// in the language of msgs.
+func (msgs Messages) SetFontFeaturesDetail() string {
+	return Catalog.Format(msgs.locale, "setFontFeaturesDetail", nil)
 }
 
 // SetThicken says "Thicken text"
@@ -3856,6 +3946,16 @@ func ActionToggleRightSidebar() string { return In(i18n.Locale()).ActionToggleRi
 // in the language of msgs.
 func (msgs Messages) ActionToggleRightSidebar() string {
 	return Catalog.Format(msgs.locale, "actionToggleRightSidebar", nil)
+}
+
+// ActionToggleDarkMode says "Toggle Dark Mode"
+// in the language the app shows.
+func ActionToggleDarkMode() string { return In(i18n.Locale()).ActionToggleDarkMode() }
+
+// ActionToggleDarkMode says "Toggle Dark Mode"
+// in the language of msgs.
+func (msgs Messages) ActionToggleDarkMode() string {
+	return Catalog.Format(msgs.locale, "actionToggleDarkMode", nil)
 }
 
 // RightSidebarHide says "Hide Right Sidebar"
