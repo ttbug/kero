@@ -44,6 +44,9 @@ func (s *screenRead) of(t *terminal.Terminal) string {
 // after them.
 func lastLines(text string, n int) string {
 	text = strings.TrimRight(text, " \n")
+	if text == "" || n <= 0 {
+		return ""
+	}
 	i := len(text)
 	for ; n > 0 && i > 0; n-- {
 		i = strings.LastIndexByte(text[:i], '\n')
