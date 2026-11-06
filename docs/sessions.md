@@ -46,8 +46,11 @@ A **project** is a folder. Kero groups sessions under their project in the sideb
 
 Groups follow the shell: when a session's shell `cd`s into another project or another repository—even one inside a folder you opened—or into a folder no project you opened holds, Kero moves the session there once the directory has stayed put for a moment, giving a folder it doesn't know a group of its own. A project you opened keeps the folders under it in its group; a group Kero made holds the one folder it is named for. A group Kero made this way goes with its last session when that session moves or closes; groups you opened or renamed stay, even empty.
 
+To change the order of projects, drag a project's header up or down in the sidebar, or use **Move** in its context menu: Move Up, Move Down, Move to Top or Move to Bottom. The order is kept across restarts.
+
 ```sh
-kero projects            # list projects
+kero projects            # list projects, in the sidebar's order
+kero projects move my-app top   # move a project: top, bottom, up, down or a position (1 is the top)
 kero new -p my-app       # start a session in a project by name
 ```
 

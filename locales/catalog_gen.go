@@ -1176,6 +1176,56 @@ func (msgs Messages) SidebarCloseAllSessions() string {
 	return Catalog.Format(msgs.locale, "sidebarCloseAllSessions", nil)
 }
 
+// SidebarMove says "Move"
+// in the language the app shows.
+func SidebarMove() string { return In(i18n.Locale()).SidebarMove() }
+
+// SidebarMove says "Move"
+// in the language of msgs.
+func (msgs Messages) SidebarMove() string {
+	return Catalog.Format(msgs.locale, "sidebarMove", nil)
+}
+
+// SidebarMoveUp says "Move Up"
+// in the language the app shows.
+func SidebarMoveUp() string { return In(i18n.Locale()).SidebarMoveUp() }
+
+// SidebarMoveUp says "Move Up"
+// in the language of msgs.
+func (msgs Messages) SidebarMoveUp() string {
+	return Catalog.Format(msgs.locale, "sidebarMoveUp", nil)
+}
+
+// SidebarMoveDown says "Move Down"
+// in the language the app shows.
+func SidebarMoveDown() string { return In(i18n.Locale()).SidebarMoveDown() }
+
+// SidebarMoveDown says "Move Down"
+// in the language of msgs.
+func (msgs Messages) SidebarMoveDown() string {
+	return Catalog.Format(msgs.locale, "sidebarMoveDown", nil)
+}
+
+// SidebarMoveToTop says "Move to Top"
+// in the language the app shows.
+func SidebarMoveToTop() string { return In(i18n.Locale()).SidebarMoveToTop() }
+
+// SidebarMoveToTop says "Move to Top"
+// in the language of msgs.
+func (msgs Messages) SidebarMoveToTop() string {
+	return Catalog.Format(msgs.locale, "sidebarMoveToTop", nil)
+}
+
+// SidebarMoveToBottom says "Move to Bottom"
+// in the language the app shows.
+func SidebarMoveToBottom() string { return In(i18n.Locale()).SidebarMoveToBottom() }
+
+// SidebarMoveToBottom says "Move to Bottom"
+// in the language of msgs.
+func (msgs Messages) SidebarMoveToBottom() string {
+	return Catalog.Format(msgs.locale, "sidebarMoveToBottom", nil)
+}
+
 // SidebarNeedsYou says "{count} needs you"
 // in the language the app shows.
 func SidebarNeedsYou(count int) string { return In(i18n.Locale()).SidebarNeedsYou(count) }
@@ -2148,6 +2198,26 @@ func SetRowsCompact() string { return In(i18n.Locale()).SetRowsCompact() }
 // in the language of msgs.
 func (msgs Messages) SetRowsCompact() string {
 	return Catalog.Format(msgs.locale, "setRowsCompact", nil)
+}
+
+// SetSidebarCount says "Session count"
+// in the language the app shows.
+func SetSidebarCount() string { return In(i18n.Locale()).SetSidebarCount() }
+
+// SetSidebarCount says "Session count"
+// in the language of msgs.
+func (msgs Messages) SetSidebarCount() string {
+	return Catalog.Format(msgs.locale, "setSidebarCount", nil)
+}
+
+// SetSidebarCountDetail says "Show, beside each project’s name, how many sessions it holds."
+// in the language the app shows.
+func SetSidebarCountDetail() string { return In(i18n.Locale()).SetSidebarCountDetail() }
+
+// SetSidebarCountDetail says "Show, beside each project’s name, how many sessions it holds."
+// in the language of msgs.
+func (msgs Messages) SetSidebarCountDetail() string {
+	return Catalog.Format(msgs.locale, "setSidebarCountDetail", nil)
 }
 
 // SetFocusFollowsMouse says "Focus follows mouse"

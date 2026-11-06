@@ -167,6 +167,11 @@
   "sidebarCloseProjectMenu": "Close Project…",
   "sidebarCloseProject": "Close Project",
   "sidebarCloseAllSessions": "Close All Sessions",
+  "sidebarMove": "Move",
+  "sidebarMoveUp": "Move Up",
+  "sidebarMoveDown": "Move Down",
+  "sidebarMoveToTop": "Move to Top",
+  "sidebarMoveToBottom": "Move to Bottom",
   "sidebarNeedsYou": "{count} needs you",
   "@sidebarNeedsYou": {
     "placeholders": {
@@ -364,6 +369,8 @@
   "setSidebarRowsDetail": "Detailed rows add a line under each session’s name: its status message, else its branch and changes.",
   "setRowsDetailed": "Detailed",
   "setRowsCompact": "Compact",
+  "setSidebarCount": "Session count",
+  "setSidebarCountDetail": "Show, beside each project’s name, how many sessions it holds.",
   "setFocusFollowsMouse": "Focus follows mouse",
   "setFocusFollowsMouseDetail": "A pane takes the focus when the pointer moves into it, without a click.",
   "setAskBeforeClosing": "Ask before closing a running program",

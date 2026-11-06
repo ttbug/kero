@@ -35,6 +35,13 @@ func ConfigPath() string {
 	return filepath.Join(base, proto.Name(), "config")
 }
 
+// AgentsPath returns the user's agents file, agents.toml, beside the
+// configuration file: the rules that tell what an agent is doing from its
+// screen (package detect), which the flat configuration can't hold.
+func AgentsPath() string {
+	return filepath.Join(filepath.Dir(ConfigPath()), "agents.toml")
+}
+
 // key is a key of the configuration: how it reads and writes a setting.
 type key struct {
 	name string
@@ -112,6 +119,7 @@ var keys = []key{
 		func(s *Settings) *string { return &s.SessionName }, proto.NameFocused, proto.NameLead, proto.NameFolder),
 	choiceKey("sidebar-rows", "how the sidebar shows a session: detailed, with its status message, else its branch and changes, on a second line; or compact, on one line",
 		func(s *Settings) *string { return &s.SidebarRows }, "detailed", "compact"),
+	boolKey("sidebar-session-count", "show, beside a project's name in the sidebar, how many sessions it holds", func(s *Settings) *bool { return &s.SidebarCount }),
 	boolKey("focus-follows-mouse", "focus the pane the pointer moves into", func(s *Settings) *bool { return &s.FocusFollowsMouse }),
 	boolKey("confirm-close", "ask before closing a pane a program runs in", func(s *Settings) *bool { return &s.ConfirmClose }),
 	boolKey("restore-sessions", "start sessions again after kerod restarts, as after a reboot", func(s *Settings) *bool { return &s.RestoreSessions }),
