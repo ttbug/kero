@@ -550,6 +550,9 @@ func (a *App) generalPage(c *ui.Context, pal *palette) {
 			segmented(c, "diff-layout", &s.DiffLayout, []string{"auto", "unified", "split"},
 				[]string{locales.SetDiffAuto(), locales.ChangesUnified(), locales.ChangesSplit()})
 		})
+		settingRow(c, pal, locales.SetWrapLines(), locales.SetWrapLinesDetail(), func() {
+			toggle(c.Key("wrap-lines"), &s.WrapLines, pal)
+		})
 	})
 	settingsGroup(c, pal, "", "", func() {
 		settingRow(c, pal, locales.AwakeTitle(), locales.AwakeDetail(), func() {
