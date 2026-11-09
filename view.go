@@ -316,8 +316,12 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		ui.Text(c, "All In One 终端工作台").FontSize(12).TextColor(pal.textMuted).SingleLine()
 	})
 	// The space between and below the rows moves the window, as the top
-	// bar does.
-	ui.Scroll(c.Key("sessions")).Grow(1).Padding(0, 10, 16, 10).DragWindow().Children(func() {
+	// bar does, and a double click there starts a session, as ⌘T does.
+	list := ui.Scroll(c.Key("sessions")).Grow(1).Padding(0, 10, 16, 10).DragWindow()
+	if list.WindowDoubleClicked() {
+		a.defer_(func() { a.newSession("") })
+	}
+	list.Children(func() {
 		if total := a.sessionCount(); total > 0 {
 			ui.Row(c.Key("tasks")).Height(26).Padding(0, 0, 0, 10).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, locales.SidebarTasks(total)).FontSize(11).FontWeight(600).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine()

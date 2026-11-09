@@ -536,6 +536,16 @@ func (msgs Messages) CommonOpen() string {
 	return Catalog.Format(msgs.locale, "commonOpen", nil)
 }
 
+// CommonChoose says "Choose"
+// in the language the app shows.
+func CommonChoose() string { return In(i18n.Locale()).CommonChoose() }
+
+// CommonChoose says "Choose"
+// in the language of msgs.
+func (msgs Messages) CommonChoose() string {
+	return Catalog.Format(msgs.locale, "commonChoose", nil)
+}
+
 // CommonShow says "Show"
 // in the language the app shows.
 func CommonShow() string { return In(i18n.Locale()).CommonShow() }
@@ -912,6 +922,26 @@ func OpenProjectMessage() string { return In(i18n.Locale()).OpenProjectMessage()
 // in the language of msgs.
 func (msgs Messages) OpenProjectMessage() string {
 	return Catalog.Format(msgs.locale, "openProjectMessage", nil)
+}
+
+// NewSessionFolderTitle says "New Sessions Start In"
+// in the language the app shows.
+func NewSessionFolderTitle() string { return In(i18n.Locale()).NewSessionFolderTitle() }
+
+// NewSessionFolderTitle says "New Sessions Start In"
+// in the language of msgs.
+func (msgs Messages) NewSessionFolderTitle() string {
+	return Catalog.Format(msgs.locale, "newSessionFolderTitle", nil)
+}
+
+// NewSessionFolderMessage says "Choose the folder new sessions start in."
+// in the language the app shows.
+func NewSessionFolderMessage() string { return In(i18n.Locale()).NewSessionFolderMessage() }
+
+// NewSessionFolderMessage says "Choose the folder new sessions start in."
+// in the language of msgs.
+func (msgs Messages) NewSessionFolderMessage() string {
+	return Catalog.Format(msgs.locale, "newSessionFolderMessage", nil)
 }
 
 // ConfirmCloseTitle says "Close “{name}”?"
@@ -2108,6 +2138,36 @@ func SetDirHome() string { return In(i18n.Locale()).SetDirHome() }
 // in the language of msgs.
 func (msgs Messages) SetDirHome() string {
 	return Catalog.Format(msgs.locale, "setDirHome", nil)
+}
+
+// SetDirCustom says "Custom…"
+// in the language the app shows.
+func SetDirCustom() string { return In(i18n.Locale()).SetDirCustom() }
+
+// SetDirCustom says "Custom…"
+// in the language of msgs.
+func (msgs Messages) SetDirCustom() string {
+	return Catalog.Format(msgs.locale, "setDirCustom", nil)
+}
+
+// SetNewSessionFolderDetail says "Sessions on other hosts start in their home, as they do here when the folder is gone."
+// in the language the app shows.
+func SetNewSessionFolderDetail() string { return In(i18n.Locale()).SetNewSessionFolderDetail() }
+
+// SetNewSessionFolderDetail says "Sessions on other hosts start in their home, as they do here when the folder is gone."
+// in the language of msgs.
+func (msgs Messages) SetNewSessionFolderDetail() string {
+	return Catalog.Format(msgs.locale, "setNewSessionFolderDetail", nil)
+}
+
+// SetChooseFolder says "Choose…"
+// in the language the app shows.
+func SetChooseFolder() string { return In(i18n.Locale()).SetChooseFolder() }
+
+// SetChooseFolder says "Choose…"
+// in the language of msgs.
+func (msgs Messages) SetChooseFolder() string {
+	return Catalog.Format(msgs.locale, "setChooseFolder", nil)
 }
 
 // SetSessionName says "Name sessions after"
@@ -4270,6 +4330,76 @@ func FilesDeleteFailed(name string, error string) string {
 // in the language of msgs.
 func (msgs Messages) FilesDeleteFailed(name string, error string) string {
 	return Catalog.Format(msgs.locale, "filesDeleteFailed", map[string]any{"name": name, "error": error})
+}
+
+// FilesReplaceTitle says "Replace “{name}”?"
+// in the language the app shows.
+func FilesReplaceTitle(name string) string { return In(i18n.Locale()).FilesReplaceTitle(name) }
+
+// FilesReplaceTitle says "Replace “{name}”?"
+// in the language of msgs.
+func (msgs Messages) FilesReplaceTitle(name string) string {
+	return Catalog.Format(msgs.locale, "filesReplaceTitle", map[string]any{"name": name})
+}
+
+// FilesReplaceManyTitle says "{count, plural, one {Replace # item?} other {Replace # items?}}"
+// in the language the app shows.
+func FilesReplaceManyTitle(count int) string { return In(i18n.Locale()).FilesReplaceManyTitle(count) }
+
+// FilesReplaceManyTitle says "{count, plural, one {Replace # item?} other {Replace # items?}}"
+// in the language of msgs.
+func (msgs Messages) FilesReplaceManyTitle(count int) string {
+	return Catalog.Format(msgs.locale, "filesReplaceManyTitle", map[string]any{"count": count})
+}
+
+// FilesReplaceDetail says "{count, plural, one {The folder already has an item with this name. Replacing it can't be undone.} other {The folder …"
+// in the language the app shows.
+func FilesReplaceDetail(count int) string { return In(i18n.Locale()).FilesReplaceDetail(count) }
+
+// FilesReplaceDetail says "{count, plural, one {The folder already has an item with this name. Replacing it can't be undone.} other {The folder …"
+// in the language of msgs.
+func (msgs Messages) FilesReplaceDetail(count int) string {
+	return Catalog.Format(msgs.locale, "filesReplaceDetail", map[string]any{"count": count})
+}
+
+// FilesReplace says "Replace"
+// in the language the app shows.
+func FilesReplace() string { return In(i18n.Locale()).FilesReplace() }
+
+// FilesReplace says "Replace"
+// in the language of msgs.
+func (msgs Messages) FilesReplace() string {
+	return Catalog.Format(msgs.locale, "filesReplace", nil)
+}
+
+// FilesSkip says "Skip"
+// in the language the app shows.
+func FilesSkip() string { return In(i18n.Locale()).FilesSkip() }
+
+// FilesSkip says "Skip"
+// in the language of msgs.
+func (msgs Messages) FilesSkip() string {
+	return Catalog.Format(msgs.locale, "filesSkip", nil)
+}
+
+// FilesCopyFailed says "Couldn't copy {errors}"
+// in the language the app shows.
+func FilesCopyFailed(errors string) string { return In(i18n.Locale()).FilesCopyFailed(errors) }
+
+// FilesCopyFailed says "Couldn't copy {errors}"
+// in the language of msgs.
+func (msgs Messages) FilesCopyFailed(errors string) string {
+	return Catalog.Format(msgs.locale, "filesCopyFailed", map[string]any{"errors": errors})
+}
+
+// FilesDropRemote says "Dropping files into Files works on this computer only, not on {host} yet"
+// in the language the app shows.
+func FilesDropRemote(host string) string { return In(i18n.Locale()).FilesDropRemote(host) }
+
+// FilesDropRemote says "Dropping files into Files works on this computer only, not on {host} yet"
+// in the language of msgs.
+func (msgs Messages) FilesDropRemote(host string) string {
+	return Catalog.Format(msgs.locale, "filesDropRemote", map[string]any{"host": host})
 }
 
 // FilesCreateFailed says "Couldn't create “{name}”: {error}"

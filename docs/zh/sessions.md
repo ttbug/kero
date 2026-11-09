@@ -22,6 +22,8 @@ Kero 将你的工作分为两层：项目（文件夹）包含会话（任务）
 | 重命名会话                 | <kbd>⌘</kbd> <kbd>R</kbd>                    |
 | 关闭会话                   | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>W</kbd>       |
 
+双击边栏的空白处即可新建会话，与 <kbd>⌘</kbd> <kbd>T</kbd> 相同。
+
 按任务给会话命名，比如 `fix-login-redirect` 或 `review-pr-42`，这样就能在边栏中找到它们，也能在[命令行](./cli.md)中指定它们。
 
 ### 新会话从哪里开始
@@ -31,6 +33,7 @@ Kero 将你的工作分为两层：项目（文件夹）包含会话（任务）
 - `current`（默认）：你当前所在会话的目录
 - `project`：项目的根目录
 - `home`：你的主目录
+- 你的某个文件夹，如 `new-session-directory = ~/Developer`，或在设置 › 通用中选 **自定义…**。文件夹不存在时从主目录开始。其他主机上的会话从其主目录开始。
 
 <a id="how-an-unnamed-session-is-named"></a>
 ### 未命名的会话如何命名

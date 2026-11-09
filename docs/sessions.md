@@ -22,6 +22,8 @@ A **session** is a unit of work: one task, one agent, one long-running process. 
 | Rename session             | <kbd>⌘</kbd> <kbd>R</kbd>                    |
 | Close session              | <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>W</kbd>       |
 
+Double-click the empty part of the sidebar to start a new session, as <kbd>⌘</kbd> <kbd>T</kbd> does.
+
 Name sessions after their task, such as `fix-login-redirect` or `review-pr-42`, so you can find them in the sidebar and target them from the [CLI](./cli.md).
 
 ### Where a new session starts
@@ -31,6 +33,7 @@ The `new-session-directory` setting picks the folder:
 - `current` (default): the directory of the session you're in
 - `project`: the project's root folder
 - `home`: your home folder
+- a folder of yours, such as `new-session-directory = ~/Developer`, or **Custom…** in Settings › General. If the folder is gone, sessions start in your home. Sessions on other hosts start in their home.
 
 ### How an unnamed session is named
 
