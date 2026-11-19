@@ -154,6 +154,14 @@
   },
   "restartServiceDetail": "Every pane’s program ends; the shells start again in their folders, under their history.",
   "sidebarOtherProject": "Other",
+  "sidebarProjects": "Current projects {count}",
+  "@sidebarProjects": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sidebarTasks": "{count, plural, one {# session} other {# sessions}}",
   "@sidebarTasks": {
     "placeholders": {
@@ -1187,7 +1195,7 @@
   "worktreeRemoveAnyway": "Remove Anyway",
   "setSessionHistory": "Session history",
   "setSessionHistoryDetail": "List the coding agents' ended conversations in the sidebar, to resume them later or archive them.",
-  "endedTitle": "Ended",
+  "endedTitle": "Recent Tasks",
   "endedArchived": "Archived",
   "endedArchive": "Archive",
   "endedShowAll": "Show all {n}",

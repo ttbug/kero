@@ -106,7 +106,15 @@
   "restartStaleDetail": "运行会话的服务仍是 Kero {was}，而当前是 Kero {version}。{running}：重启会结束它们，会话会在原处重新开始，并保留历史记录。",
   "restartServiceDetail": "所有窗格中的程序都会结束；Shell 会在各自的文件夹中重新启动，并保留历史记录。",
   "sidebarOtherProject": "其他",
-  "sidebarTasks": "当前任务 {count}",
+  "sidebarProjects": "当前项目 {count}",
+  "@sidebarProjects": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarTasks": "· 会话 {count}",
   "@sidebarTasks": {
     "placeholders": {
       "count": {
@@ -633,7 +641,7 @@
   "worktreeRemoveAnyway": "仍然删除",
   "setSessionHistory": "会话历史",
   "setSessionHistoryDetail": "在侧边栏中列出智能体已结束的对话，以便之后恢复或归档。",
-  "endedTitle": "已结束",
+  "endedTitle": "最近任务",
   "endedArchived": "已归档",
   "endedArchive": "归档",
   "endedShowAll": "显示全部 {n} 个",

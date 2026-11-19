@@ -174,7 +174,7 @@ var keys = []key{
 	newSessionDirKey,
 	choiceKey("session-name", "what names a session you or an agent didn't: the program in the pane you're in, else in the one that most needs you; the program in the one that most needs you; or the first pane's folder",
 		func(s *Settings) *string { return &s.SessionName }, proto.NameFocused, proto.NameLead, proto.NameFolder),
-	choiceKey("sidebar-rows", "how the sidebar shows a session: detailed, with its status message, else its branch and changes, on a second line; or compact, on one line",
+	choiceKey("sidebar-rows", "how the sidebar shows a session: compact, with its program and session name; or detailed, with its status message, else its branch and changes, on an extra line",
 		func(s *Settings) *string { return &s.SidebarRows }, "detailed", "compact"),
 	boolKey("sidebar-session-count", "show, beside a project's name in the sidebar, how many sessions it holds", func(s *Settings) *bool { return &s.SidebarCount }),
 	boolKey("focus-follows-mouse", "focus the pane the pointer moves into", func(s *Settings) *bool { return &s.FocusFollowsMouse }),

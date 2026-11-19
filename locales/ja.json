@@ -106,7 +106,15 @@
   "restartStaleDetail": "セッションを実行しているサービスはまだ Kero {was} で、このアプリは Kero {version} です。{running}: 再起動するとそれらは終了し、セッションは履歴とともに元の場所から再開します。",
   "restartServiceDetail": "すべてのペインのプログラムが終了します。シェルは履歴とともに、それぞれのフォルダで再び起動します。",
   "sidebarOtherProject": "その他",
-  "sidebarTasks": "タスク {count}",
+  "sidebarProjects": "現在のプロジェクト {count}",
+  "@sidebarProjects": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarTasks": "· セッション {count}",
   "@sidebarTasks": {
     "placeholders": {
       "count": {
@@ -633,7 +641,7 @@
   "worktreeRemoveAnyway": "それでも削除",
   "setSessionHistory": "セッション履歴",
   "setSessionHistoryDetail": "終了したエージェントの会話をサイドバーに一覧し、あとで再開したりアーカイブしたりできます。",
-  "endedTitle": "終了済み",
+  "endedTitle": "最近のタスク",
   "endedArchived": "アーカイブ",
   "endedArchive": "アーカイブ",
   "endedShowAll": "すべて表示（{n}）",

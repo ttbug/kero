@@ -78,6 +78,7 @@ func (a *App) endedSections(c *ui.Context, pal *palette) {
 	slices.SortStableFunc(ended, newest)
 	slices.SortStableFunc(archived, newest)
 	if len(ended)+len(archived) == 0 {
+		a.endedSection(c, pal, "ended", locales.EndedTitle(), nil, &a.prefs.EndedOpen)
 		a.skillHint(c, pal)
 		return
 	}
@@ -86,15 +87,15 @@ func (a *App) endedSections(c *ui.Context, pal *palette) {
 }
 
 func (a *App) endedSection(c *ui.Context, pal *palette, key, title string, list []hostEnded, open *bool) {
-	if len(list) == 0 {
+	if len(list) == 0 && key != "ended" {
 		return
 	}
 	inset := float32(rowInset)
 	if pal.dark {
 		inset++
 	}
-	hdr := ui.Row(c.Key("section-"+key)).Height(28).Margin(18, 0, 3, 0).Padding(0, 6, 0, inset).Gap(6).AlignItems(ui.Center).Radius(6)
-	if hdr.Clicked() {
+	hdr := ui.Row(c.Key("section-"+key)).Height(30).Margin(12, 0, 3, 0).Padding(0, 6).Gap(8).AlignItems(ui.Center).Radius(6)
+	if hdr.Clicked() && len(list) > 0 {
 		*open = !*open
 		a.savePrefs()
 	}
@@ -102,8 +103,11 @@ func (a *App) endedSection(c *ui.Context, pal *palette, key, title string, list 
 	hdr.Children(func() {
 		ui.Text(c, title).FontSize(12.5).FontWeight(600).TextColor(pal.textMuted).SingleLine()
 		ui.Textf(c, "%d", len(list)).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum")
-		chev := ui.Icon(c, chevronIcon).Size(11, 11).TextColor(pal.textFaint)
-		chev.Rotate(chev.AnimateTo("turn", 90*b2f(*open), ui.Snappy))
+		ui.Box(c).Grow(1).Height(1).Background(pal.textFaint.Alpha(0.18))
+		if len(list) > 0 {
+			chev := ui.Icon(c, chevronIcon).Size(11, 11).TextColor(pal.textFaint)
+			chev.Rotate(chev.AnimateTo("turn", 90*b2f(*open), ui.Snappy))
+		}
 	})
 	if !*open {
 		return

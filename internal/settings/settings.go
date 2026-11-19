@@ -27,7 +27,7 @@ type Settings struct {
 	NewSessionDir     string `json:"newSessionDir"`     // "current", "project", "home" or "custom", NewSessionPath
 	NewSessionPath    string `json:"newSessionPath"`    // the folder new sessions start in when NewSessionDir is "custom", as ~/… or absolute
 	SessionName       string `json:"sessionName"`       // what names an unnamed session: proto.NameFocused, NameLead or NameFolder
-	SidebarRows       string `json:"sidebarRows"`       // "detailed", two lines a session, or "compact", one
+	SidebarRows       string `json:"sidebarRows"`       // "compact", program and session name; "detailed" adds status details
 	SidebarCount      bool   `json:"sidebarCount"`      // a project's header shows how many sessions it holds
 	FocusFollowsMouse bool   `json:"focusFollowsMouse"` // a pane the pointer enters takes the focus
 	ConfirmClose      bool   `json:"confirmClose"`      // before closing a pane a program runs in

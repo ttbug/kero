@@ -899,7 +899,7 @@ func TestSidebarSessionCount(t *testing.T) {
 
 // A detailed row shows, under the session's name, its status message,
 // else its branch and changes, at the whole row's width; a compact one
-// keeps to one line ($KERO_SHOTS).
+// keeps to the program and session name ($KERO_SHOTS).
 func TestSidebarRows(t *testing.T) {
 	a := testApp(t)
 	a.local().conn = connReady

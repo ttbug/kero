@@ -1116,6 +1116,16 @@ func (msgs Messages) SidebarOtherProject() string {
 	return Catalog.Format(msgs.locale, "sidebarOtherProject", nil)
 }
 
+// SidebarProjects says "Current projects {count}"
+// in the language the app shows.
+func SidebarProjects(count int) string { return In(i18n.Locale()).SidebarProjects(count) }
+
+// SidebarProjects says "Current projects {count}"
+// in the language of msgs.
+func (msgs Messages) SidebarProjects(count int) string {
+	return Catalog.Format(msgs.locale, "sidebarProjects", map[string]any{"count": count})
+}
+
 // SidebarTasks says "{count, plural, one {# session} other {# sessions}}"
 // in the language the app shows.
 func SidebarTasks(count int) string { return In(i18n.Locale()).SidebarTasks(count) }
@@ -6372,11 +6382,11 @@ func (msgs Messages) SetSessionHistoryDetail() string {
 	return Catalog.Format(msgs.locale, "setSessionHistoryDetail", nil)
 }
 
-// EndedTitle says "Ended"
+// EndedTitle says "Recent Tasks"
 // in the language the app shows.
 func EndedTitle() string { return In(i18n.Locale()).EndedTitle() }
 
-// EndedTitle says "Ended"
+// EndedTitle says "Recent Tasks"
 // in the language of msgs.
 func (msgs Messages) EndedTitle() string {
 	return Catalog.Format(msgs.locale, "endedTitle", nil)
