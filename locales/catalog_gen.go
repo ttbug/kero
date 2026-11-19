@@ -2330,6 +2330,26 @@ func (msgs Messages) SetAskBeforeClosingDetail() string {
 	return Catalog.Format(msgs.locale, "setAskBeforeClosingDetail", nil)
 }
 
+// SetQuitEndsSessions says "End sessions when Kero quits"
+// in the language the app shows.
+func SetQuitEndsSessions() string { return In(i18n.Locale()).SetQuitEndsSessions() }
+
+// SetQuitEndsSessions says "End sessions when Kero quits"
+// in the language of msgs.
+func (msgs Messages) SetQuitEndsSessions() string {
+	return Catalog.Format(msgs.locale, "setQuitEndsSessions", nil)
+}
+
+// SetQuitEndsSessionsDetail says "Quitting also ends this machine's sessions and stops kerod. It asks first while a program still runs."
+// in the language the app shows.
+func SetQuitEndsSessionsDetail() string { return In(i18n.Locale()).SetQuitEndsSessionsDetail() }
+
+// SetQuitEndsSessionsDetail says "Quitting also ends this machine's sessions and stops kerod. It asks first while a program still runs."
+// in the language of msgs.
+func (msgs Messages) SetQuitEndsSessionsDetail() string {
+	return Catalog.Format(msgs.locale, "setQuitEndsSessionsDetail", nil)
+}
+
 // SetRestoreSessions says "Restore sessions after a restart"
 // in the language the app shows.
 func SetRestoreSessions() string { return In(i18n.Locale()).SetRestoreSessions() }
@@ -3044,14 +3064,14 @@ func (msgs Messages) SetColors() string {
 	return Catalog.Format(msgs.locale, "setColors", nil)
 }
 
-// SetColorsDetail says "One of Ghostty’s themes, or your own in ~/.config/ghostty/themes, colors the window, its panes and terminals in pla…"
+// SetColorsDetail says "One of Ghostty’s themes, or your own in {path}, colors the window, its panes and terminals in pla…"
 // in the language the app shows.
-func SetColorsDetail() string { return In(i18n.Locale()).SetColorsDetail() }
+func SetColorsDetail(path string) string { return In(i18n.Locale()).SetColorsDetail(path) }
 
-// SetColorsDetail says "One of Ghostty’s themes, or your own in ~/.config/ghostty/themes, colors the window, its panes and terminals in pla…"
+// SetColorsDetail says "One of Ghostty’s themes, or your own in {path}, colors the window, its panes and terminals in pla…"
 // in the language of msgs.
-func (msgs Messages) SetColorsDetail() string {
-	return Catalog.Format(msgs.locale, "setColorsDetail", nil)
+func (msgs Messages) SetColorsDetail(path string) string {
+	return Catalog.Format(msgs.locale, "setColorsDetail", map[string]any{"path": path})
 }
 
 // SetLightWindows says "Light windows"

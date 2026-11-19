@@ -550,6 +550,9 @@ func (a *App) generalPage(c *ui.Context, pal *palette) {
 		settingRow(c, pal, locales.SetAskBeforeClosing(), locales.SetAskBeforeClosingDetail(), func() {
 			toggle(c.Key("confirm"), &s.ConfirmClose, pal)
 		})
+		settingRow(c, pal, locales.SetQuitEndsSessions(), locales.SetQuitEndsSessionsDetail(), func() {
+			toggle(c.Key("quit-ends"), &s.QuitEndsSessions, pal)
+		})
 		settingRow(c, pal, locales.SetRestoreSessions(), locales.SetRestoreSessionsDetail(), func() {
 			toggle(c.Key("restore"), &s.RestoreSessions, pal)
 		})
@@ -740,7 +743,7 @@ func (a *App) appearancePage(c *ui.Context, pal *palette) {
 			choose(v)
 		})
 	}
-	settingsGroup(c, pal, locales.SetColors(), locales.SetColorsDetail(), func() {
+	settingsGroup(c, pal, locales.SetColors(), locales.SetColorsDetail(themesDir()), func() {
 		settingRow(c, pal, locales.SetLightWindows(), "", func() {
 			ghostty("light", s.LightTheme, func(v string) { a.set.LightTheme = v })
 		})
@@ -748,6 +751,38 @@ func (a *App) appearancePage(c *ui.Context, pal *palette) {
 			ghostty("dark", s.DarkTheme, func(v string) { a.set.DarkTheme = v })
 		})
 	})
+}
+
+// themesDir is the directory of the user's Ghostty themes, which the
+// Colors row names: mygo reads them from $XDG_CONFIG_HOME, on Windows
+// from %LOCALAPPDATA% when that is unset, else from ~/.config, as
+// Ghostty finds them. The home goes as ~.
+func themesDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	return themesDirFor(runtime.GOOS, os.Getenv("XDG_CONFIG_HOME"), os.Getenv("LOCALAPPDATA"), home)
+}
+
+// themesDirFor is themesDir's logic on its own, for a GOOS and the
+// environment of the machine: no home directory gives no directory.
+func themesDirFor(goos, xdg, localappdata, home string) string {
+	dir := xdg
+	if dir == "" && goos == "windows" {
+		dir = localappdata
+	}
+	if dir == "" {
+		if home == "" {
+			return ""
+		}
+		dir = filepath.Join(home, ".config")
+	}
+	path := filepath.Join(dir, "ghostty", "themes")
+	if home != "" && strings.HasPrefix(path, home) {
+		path = "~" + strings.TrimPrefix(path, home)
+	}
+	return path
 }
 
 // languageName names a language in itself, as "简体中文", so that whoever
