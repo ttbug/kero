@@ -80,6 +80,7 @@ kero config check             # 报告未知的配置项、无效的值和agents
 | `cursor-style-blink`  | `true`  | 光标闪烁                                                                 |
 | `macos-option-as-alt` | `false` | Option 键向程序发送 Alt（Meta）                                          |
 | `copy-on-select`      | `false` | 选中内容即复制到剪贴板                                                   |
+| `font-zoom`           | `true`  | 按住 Command 滚动滚轮、Command+= / - 调整字号                            |
 | `clipboard-read`      | `ask`   | 程序读取剪贴板（OSC 52）时：`ask`、`allow` 或 `deny`                     |
 | `right-click-action`  | `context-menu` | `context-menu`、`paste` 或 `copy-or-paste`                        |
 | `mouse-scroll-multiplier` | `precision:1,discrete:3` | 滚动的幅度，同 Ghostty：`precision:` 是触控板滚动的倍数，`discrete:` 是鼠标滚轮每一格滚动的行数（Windows 上指系统设为 3 行时的一格）；只写一个数字则同时设置两者，范围 `0.01` 到 `10000` |
@@ -104,7 +105,7 @@ kero config check             # 报告未知的配置项、无效的值和agents
 | `notify-on-done`    | `true`  | 智能体完成时                                   |
 | `notify-on-error`   | `true`  | 程序报告失败时                                 |
 | `notify-sound`      | `false` | 通知时播放提示音                               |
-| `dock-badge`        | `true`  | 在 Dock 图标上显示有多少会话需要你             |
+| `dock-badge`        | `waiting` | Dock 图标标记统计什么: `waiting`、`waiting-and-unread` 或 `off` |
 | `dock-bounce`       | `false` | 有会话开始需要你时，Dock 图标跳动一次          |
 
 ## 智能体

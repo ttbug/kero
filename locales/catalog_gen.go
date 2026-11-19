@@ -3534,14 +3534,44 @@ func (msgs Messages) SetDockBadge() string {
 	return Catalog.Format(msgs.locale, "setDockBadge", nil)
 }
 
-// SetDockBadgeDetail says "With the number of sessions that need you."
+// SetDockBadgeDetail says "With the number of sessions that need you, or those and the finished ones you haven’t seen."
 // in the language the app shows.
 func SetDockBadgeDetail() string { return In(i18n.Locale()).SetDockBadgeDetail() }
 
-// SetDockBadgeDetail says "With the number of sessions that need you."
+// SetDockBadgeDetail says "With the number of sessions that need you, or those and the finished ones you haven’t seen."
 // in the language of msgs.
 func (msgs Messages) SetDockBadgeDetail() string {
 	return Catalog.Format(msgs.locale, "setDockBadgeDetail", nil)
+}
+
+// SetDockBadgeWaiting says "Sessions needing you"
+// in the language the app shows.
+func SetDockBadgeWaiting() string { return In(i18n.Locale()).SetDockBadgeWaiting() }
+
+// SetDockBadgeWaiting says "Sessions needing you"
+// in the language of msgs.
+func (msgs Messages) SetDockBadgeWaiting() string {
+	return Catalog.Format(msgs.locale, "setDockBadgeWaiting", nil)
+}
+
+// SetDockBadgeUnread says "Those and finished ones"
+// in the language the app shows.
+func SetDockBadgeUnread() string { return In(i18n.Locale()).SetDockBadgeUnread() }
+
+// SetDockBadgeUnread says "Those and finished ones"
+// in the language of msgs.
+func (msgs Messages) SetDockBadgeUnread() string {
+	return Catalog.Format(msgs.locale, "setDockBadgeUnread", nil)
+}
+
+// SetDockBadgeOff says "Off"
+// in the language the app shows.
+func SetDockBadgeOff() string { return In(i18n.Locale()).SetDockBadgeOff() }
+
+// SetDockBadgeOff says "Off"
+// in the language of msgs.
+func (msgs Messages) SetDockBadgeOff() string {
+	return Catalog.Format(msgs.locale, "setDockBadgeOff", nil)
 }
 
 // SetDockBounce says "Bounce the Dock icon"
@@ -4196,6 +4226,46 @@ func FilesOpenDefault() string { return In(i18n.Locale()).FilesOpenDefault() }
 // in the language of msgs.
 func (msgs Messages) FilesOpenDefault() string {
 	return Catalog.Format(msgs.locale, "filesOpenDefault", nil)
+}
+
+// FilesRevealIn says "Reveal in {app}"
+// in the language the app shows.
+func FilesRevealIn(app string) string { return In(i18n.Locale()).FilesRevealIn(app) }
+
+// FilesRevealIn says "Reveal in {app}"
+// in the language of msgs.
+func (msgs Messages) FilesRevealIn(app string) string {
+	return Catalog.Format(msgs.locale, "filesRevealIn", map[string]any{"app": app})
+}
+
+// FilesCopyPath says "Copy Path"
+// in the language the app shows.
+func FilesCopyPath() string { return In(i18n.Locale()).FilesCopyPath() }
+
+// FilesCopyPath says "Copy Path"
+// in the language of msgs.
+func (msgs Messages) FilesCopyPath() string {
+	return Catalog.Format(msgs.locale, "filesCopyPath", nil)
+}
+
+// FilesCopyRelPath says "Copy Relative Path"
+// in the language the app shows.
+func FilesCopyRelPath() string { return In(i18n.Locale()).FilesCopyRelPath() }
+
+// FilesCopyRelPath says "Copy Relative Path"
+// in the language of msgs.
+func (msgs Messages) FilesCopyRelPath() string {
+	return Catalog.Format(msgs.locale, "filesCopyRelPath", nil)
+}
+
+// FilesSendToAgent says "Send to the Agent"
+// in the language the app shows.
+func FilesSendToAgent() string { return In(i18n.Locale()).FilesSendToAgent() }
+
+// FilesSendToAgent says "Send to the Agent"
+// in the language of msgs.
+func (msgs Messages) FilesSendToAgent() string {
+	return Catalog.Format(msgs.locale, "filesSendToAgent", nil)
 }
 
 // FilesNewFile says "New File…"

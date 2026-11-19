@@ -31,6 +31,7 @@ import (
 	"kero/internal/clilink"
 	"kero/internal/detach"
 	"kero/internal/detect"
+	"kero/internal/heapdump"
 	"kero/internal/proto"
 	"kero/internal/settings"
 	"kero/internal/shell"
@@ -197,6 +198,7 @@ func Run(opts Options) error {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 	notifyStop(sigs)
+	heapdump.Enable()
 	go func() {
 		s := <-sigs
 		lg.Printf("%v: saving and exiting", s)
@@ -237,6 +239,7 @@ func Run(opts Options) error {
 	if d.restarting {
 		d.successor()
 	}
+	heapdump.Dump()
 	return nil
 }
 
@@ -633,6 +636,7 @@ func expandHome(p string) string {
 var agents = []string{
 	"claude", "codex", "gemini", "opencode", "amp", "aider", "cursor-agent", "droid",
 	"qwen", "goose", "crush", "copilot", "kiro-cli", "cline", "auggie", "kimi", "pi", "omp",
+	"codebuddy", "pig",
 }
 
 func detectAgent(name string, args []string) string {

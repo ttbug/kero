@@ -1201,7 +1201,7 @@ func (a *App) notificationsPage(c *ui.Context, pal *palette) {
 	})
 	settingsGroup(c, pal, locales.SetHow(), "", func() {
 		settingRow(c, pal, locales.SetPlaySound(), "", func() { toggle(c.Key("ns"), &s.NotifySound, pal) })
-		settingRow(c, pal, locales.SetDockBadge(), locales.SetDockBadgeDetail(), func() { toggle(c.Key("nb"), &s.DockBadge, pal) })
+		settingRow(c, pal, locales.SetDockBadge(), locales.SetDockBadgeDetail(), func() { popup(c, "dock-badge", &s.DockBadge, settings.DockBadgeModes, dockBadgeName, 180, pal) })
 		settingRow(c, pal, locales.SetDockBounce(), locales.SetDockBounceDetail(), func() { toggle(c.Key("nbo"), &s.BounceDock, pal) })
 	})
 	if button(c, "test-notif", locales.SetTestNotification(), "", false, pal) {
@@ -1245,7 +1245,7 @@ func (a *App) agentsPage(c *ui.Context, pal *palette) {
 	})
 	settingsGroup(c, pal, locales.SetSkills(), locales.SetSkillsDetail(), func() {
 		for _, st := range cli.SkillStates() {
-			name := map[string]string{"claude": "Claude Code", "agents": "Codex, OpenCode, Pi"}[st.Agent]
+			name := map[string]string{"claude": "Claude Code", "codebuddy": "CodeBuddy Code", "agents": "Codex, OpenCode, Pi"}[st.Agent]
 			detail := map[string]string{"current": locales.SetSkillInstalled(), "outdated": locales.SetSkillOutdated(), "missing": locales.SetSkillMissing()}[st.State] + " · " + proto.ShortDir(st.Dir)
 			settingRow(c, pal, name, detail, func() {
 				agent := st.Agent
