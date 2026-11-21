@@ -33,6 +33,7 @@ type editTarget struct {
 	kind   string // sideFiles, or sideChanges for a diff's
 	name   string // as prompts say it
 	pane   string // a pane of the host the file is on
+	scope  string // the list of changes a diff's is: its worktree's, or a turn's
 	path   string // the file, on the host
 	hash   *string
 	buf    *editor.Buffer
@@ -55,10 +56,15 @@ func (a *App) fileTarget(fv *fileView) editTarget {
 
 // diffTarget is the new side of a file's diff.
 func (a *App) diffTarget(sf *sideFile) editTarget {
-	t := editTarget{kind: sideChanges, name: pathBase(sf.f.Path), pane: sf.pane, path: a.hostOf(sf.pane).joinPath(sf.root, sf.f.Path),
-		hash: &sf.hash, edits: &sf.edits, reload: func() { a.fetchFile(sf, "") }}
+	t := editTarget{kind: sideChanges, name: pathBase(sf.f.Path), pane: sf.pane, scope: sf.scope,
+		path: a.hostOf(sf.pane).joinPath(sf.root, sf.f.Path), hash: &sf.hash, edits: &sf.edits, reload: func() { a.fetchFile(sf, "") }}
 	if sf.d != nil && !sf.patch {
 		t.buf = sf.d.New
+	}
+	// A diff of a pane gone is not a text to save: no host has the pane,
+	// and the local one is where its file is not.
+	if !a.paneAlive(t.pane) {
+		t.buf = nil
 	}
 	return t
 }
@@ -67,7 +73,7 @@ func pathBase(p string) string { return p[strings.LastIndexAny(p, `/\`)+1:] }
 
 // viewTargets are the texts of a viewer with edits to save: its file, or
 // its diffs.
-func (a *App) viewTargets(v *sideView) []editTarget {
+func (a *App) viewTargets(v *sideView, s *proto.Session) []editTarget {
 	var ts []editTarget
 	if v.kind == sideFiles {
 		if v.file != nil {
@@ -77,7 +83,13 @@ func (a *App) viewTargets(v *sideView) []editTarget {
 		}
 		return ts
 	}
+	// The diffs of the list the viewer shows: those of another
+	// worktree's changes are another session's, and stay theirs.
+	scope := a.changesScopeOf(s)
 	for _, sf := range a.side.changes.files {
+		if sf.scope != scope {
+			continue
+		}
 		if t := a.diffTarget(sf); t.dirty() {
 			ts = append(ts, t)
 		}

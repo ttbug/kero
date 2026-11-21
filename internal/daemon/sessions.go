@@ -298,6 +298,10 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 	s := &session{id: newID(), project: project, name: strings.TrimSpace(p.Name), created: time.Now().UnixMilli(), worktree: wt}
 	pn, err := d.startPane(s.id, p, dir)
 	if err != nil {
+		// The pane never started, so no session holds the worktree: it
+		// goes with the pane, or the next try at the same branch finds
+		// it there already.
+		d.removeWorktree(wt)
 		// A project the daemon made for the directory goes with the pane
 		// that couldn't start in it.
 		d.mu.Lock()
@@ -337,6 +341,9 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 		d.mu.Unlock()
 		return proto.Session{}, fmt.Errorf("no session or pane %q", p.Split)
 	}
+	// The pane's own lock: its directory and its size change under it,
+	// as its shell changes directory and the clients resize it.
+	at.mu.Lock()
 	dir := at.info.Dir
 	if p.Cols == 0 {
 		// Half of the pane split, as a start: the view sets the size.
@@ -347,6 +354,7 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 			p.Cols = max(p.Cols/2, 10)
 		}
 	}
+	at.mu.Unlock()
 	sid, atID := s.id, at.info.ID
 	d.mu.Unlock()
 	if p.Dir != "" {

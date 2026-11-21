@@ -3,6 +3,7 @@
 ## 当前阶段
 
 - 左侧栏参考布局及主题联动修复已完成，专项回归和渲染检查通过；全量测试存在未通过项。
+- 已处理 `main`（`2c7c487`）合入 `feat/own` 的冲突及恢复流程死锁，相关回归通过；尚未创建合并提交。
 - 本文件从本次任务开始记录，其他项目进度待确认。
 
 ## 已完成
@@ -15,6 +16,8 @@
 - 「最近任务」复用已结束的历史会话；启用历史记录且为空时显示零，关闭历史记录时只显示标题。
 - 已检查深色、浅色、窄侧栏长名称及展开多窗格的测试渲染。
 - 新增实际渲染回归，覆盖同一窗口内切换 Paper 深浅色、TokyoNight Moon、Catppuccin Mocha、TokyoNight Day、Plain 深浅色，检查背景和选中强调线跟随主题。
+- 合并保留会话启动失败后的 worktree 清理与空自动项目清理，回归覆盖手动项目保留、自动项目移除和同一分支重试。
+- 修复自动合并后的恢复死锁：`restore()` 持锁期间调用 `pruneAutoProjectsLocked()`，避免重复获取 daemon 锁；恢复专项与并发 race 检查通过。
 
 ## 进行中
 
@@ -34,6 +37,9 @@
 
 ## 最近验证
 
+- 2026-11-21：合并冲突相关 worktree、空项目、浏览器恢复及会话恢复专项通过；`TestRestoreWhileState` 和 `TestWorktreeGoneWhenPaneFails` 的 race 检查通过。
+- 2026-11-21：侧栏及七种主题渲染回归、`go tool mygo vet .`、`go tool mygo i18n check .`、Go 格式及 Git diff 检查通过。
+- 2026-11-21：首轮全量在 `TestBrowserPane` 恢复阶段挂起，堆栈确认重复加锁；修复后 `CGO_ENABLED=0 go test ./... -timeout=120s` 正常结束，仍有上述五项已记录失败，未宣称全仓通过。日志：`/tmp/kero-merge-full-test-final.log`；首轮堆栈：`/tmp/kero-merge-full-test.log`。
 - 2026-11-19：已检查工作区，开始修改前无未提交变更。
 - 2026-11-19：侧边栏、折叠、相邻会话、分支、状态、悬停关闭、双击和项目拖动专项回归通过。
 - 2026-11-19：`go tool mygo vet .`、`go tool mygo i18n check .` 和 `git diff --check` 通过。

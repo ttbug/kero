@@ -51,22 +51,34 @@ type viewBackup struct {
 type unsavedText struct {
 	Kind string `json:"kind"`
 	Host string `json:"host,omitempty"` // "" for this machine
-	Pane string `json:"pane,omitempty"`
-	Path string `json:"path"`
-	Hash string `json:"hash"`
-	Text string `json:"text"`
+	// Scope is the list of changes a diff's is: a worktree's against a
+	// base, or a turn's. Two of them may be of one file, and an edit of
+	// one is not the other's.
+	Scope string `json:"scope,omitempty"`
+	Pane  string `json:"pane,omitempty"`
+	Path  string `json:"path"`
+	Hash  string `json:"hash"`
+	Text  string `json:"text"`
 }
 
-func (u unsavedText) key() string { return unsavedKey(u.Kind, u.Host, u.Path) }
+func (u unsavedText) key() string { return unsavedKey(u.Kind, u.Host, u.Scope, u.Path) }
 
-func unsavedKey(kind, host, path string) string { return kind + "\x00" + host + "\x00" + path }
+// unsavedKey is what an edit is remembered by. A file's has no scope of
+// its own, and keeps the key it always had, so an edit backed up before
+// scopes were stays the file's.
+func unsavedKey(kind, host, scope, path string) string {
+	if scope == "" {
+		return kind + "\x00" + host + "\x00" + path
+	}
+	return kind + "\x00" + host + "\x00" + scope + "\x00" + path
+}
 
 func backupPath() string { return filepath.Join(proto.Dir(), "unsaved.json") }
 
 // backupState is what the app keeps of its backups.
 type backupState struct {
 	// unsaved are the edits backed up that no text shows yet, by kind,
-	// host and path (unsavedKey).
+	// host, scope and path (unsavedKey).
 	unsaved map[string]unsavedText
 	// sig is what the backup is of, as last seen, changed when it
 	// changed; written what the file has.
@@ -109,8 +121,8 @@ func (a *App) loadBackup() {
 
 // restoreEdit puts back in b, a text just loaded, the edit backed up of
 // its file, if any, with the hash of the file it was made on.
-func (a *App) restoreEdit(kind string, h *host, path string, b *editor.Buffer, hash *string) {
-	key := unsavedKey(kind, h.name, path)
+func (a *App) restoreEdit(kind string, h *host, scope, path string, b *editor.Buffer, hash *string) {
+	key := unsavedKey(kind, h.name, scope, path)
 	u, ok := a.side.backup.unsaved[key]
 	if !ok {
 		return
@@ -134,7 +146,7 @@ func (a *App) backupNow() viewerBackup {
 		vb.Views[sid] = b
 	}
 	for _, t := range a.allTargets() {
-		vb.Unsaved = append(vb.Unsaved, unsavedText{Kind: t.kind, Host: a.hostOf(t.pane).name, Pane: t.pane, Path: t.path, Hash: *t.hash, Text: bufferText(t.buf)})
+		vb.Unsaved = append(vb.Unsaved, unsavedText{Kind: t.kind, Host: a.hostOf(t.pane).name, Scope: t.scope, Pane: t.pane, Path: t.path, Hash: *t.hash, Text: bufferText(t.buf)})
 	}
 	for _, u := range a.side.backup.unsaved {
 		vb.Unsaved = append(vb.Unsaved, u)
@@ -144,11 +156,19 @@ func (a *App) backupNow() viewerBackup {
 }
 
 // backupSig is what the backup is of, cheaply: each viewer's, and each
-// text's with edits, at its version.
+// text's with edits, at its version. The entries are sorted: the maps
+// yield them in any order, and a signature that changed with nothing
+// changed would read as the user typing on, and the write would wait
+// for a pause that never comes.
 func (a *App) backupSig() string {
 	var b strings.Builder
-	for sid, v := range a.side.views {
-		if v.kind != "" {
+	sids := make([]string, 0, len(a.side.views))
+	for sid := range a.side.views {
+		sids = append(sids, sid)
+	}
+	slices.Sort(sids)
+	for _, sid := range sids {
+		if v := a.side.views[sid]; v.kind != "" {
 			fmt.Fprint(&b, sid, v.kind)
 			if v.file != nil {
 				b.WriteString(v.file.path)
@@ -156,8 +176,12 @@ func (a *App) backupSig() string {
 			b.WriteByte(0)
 		}
 	}
-	for _, t := range a.allTargets() {
-		fmt.Fprint(&b, t.kind, t.path, t.buf.Version(), *t.hash, "\x00")
+	ts := a.allTargets()
+	slices.SortFunc(ts, func(x, y editTarget) int {
+		return strings.Compare(x.kind+"\x00"+x.scope+"\x00"+x.path, y.kind+"\x00"+y.scope+"\x00"+y.path)
+	})
+	for _, t := range ts {
+		fmt.Fprint(&b, t.kind, t.scope, t.path, t.buf.Version(), *t.hash, "\x00")
 	}
 	fmt.Fprint(&b, len(a.side.backup.unsaved))
 	return b.String()

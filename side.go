@@ -121,6 +121,7 @@ type changesState struct {
 // user edits.
 type sideFile struct {
 	pane, base string
+	scope      string // the list of changes it belongs to: a worktree's, or a turn's
 	root       string // the worktree's, on the host
 	edits      edited
 	f          proto.GitFile     // the file as listed when its text was asked for
@@ -237,7 +238,7 @@ func (a *App) closeView(s *proto.Session) {
 		return
 	}
 	// Asking first to save what the user edited in it.
-	a.askToSave(a.viewTargets(v), func() {
+	a.askToSave(a.viewTargets(v, s), func() {
 		v.kind = ""
 		if a.side.focused {
 			a.side.focused = false
@@ -262,7 +263,12 @@ func (a *App) rightWidth() float32 {
 // rightHandle is the sidebar's edge, which a drag moves: in the window,
 // over the edge between the cards and the sidebar, right wide.
 func (a *App) rightHandle(c *ui.Context, right float32) {
-	h := ui.Box(c.Key("resize-right")).Absolute().Right(right - 5).Top(0).Bottom(0).Width(9).Cursor(ui.CursorResizeColumn).KeepFocus()
+	// A drag leaves the keyboard in the pane the user is in, unless that
+	// pane is a browser: its page cannot hold it while the button is down.
+	h := ui.Box(c.Key("resize-right")).Absolute().Right(right - 5).Top(0).Bottom(0).Width(9).Cursor(ui.CursorResizeColumn)
+	if a.keepsFocus() {
+		h.KeepFocus()
+	}
 	if dx, _, ok := h.Dragged(); ok {
 		if a.side.barDrag == 0 {
 			a.side.barDrag = a.rightWidth()
@@ -273,6 +279,10 @@ func (a *App) rightHandle(c *ui.Context, right float32) {
 		a.side.barDrag = 0
 		a.savePrefs()
 	}
+	// The handle has the pointer, or had it and let it go: the pane the
+	// user is in takes the keyboard back, which the press took from it
+	// (#398).
+	a.handlePress("resize-right", h)
 	if h.DoubleClicked() {
 		a.prefs.RightWidth = 0
 		a.savePrefs()
@@ -512,6 +522,36 @@ func changesScope(p *proto.Pane, base string) string {
 	return p.ID + "|" + base
 }
 
+// changesScopeOn names what the Changes tab lists for a pane on a host: a
+// remote host's name is in it, as two hosts may have a worktree of the
+// same path, and their changes are not each other's.
+func changesScopeOn(host string, p *proto.Pane, base string) string {
+	if host == "" {
+		return changesScope(p, base)
+	}
+	return host + "|" + changesScope(p, base)
+}
+
+// changesPane is the pane whose changes the Changes tab shows for a
+// session: the one the user is in, or the one of its agent's turn.
+func changesPane(here, turn *proto.Pane, base string) *proto.Pane {
+	if base == git.BaseTurn {
+		return turn
+	}
+	return here
+}
+
+// changesScopeOf is the list of changes the Changes tab shows for a
+// session: its worktree's changes, or its turn's.
+func (a *App) changesScopeOf(s *proto.Session) string {
+	here, turn := a.changesPanes(s)
+	pane := changesPane(here, turn, a.side.changes.base)
+	if pane == nil {
+		return ""
+	}
+	return changesScopeOn(a.hostOf(pane.ID).name, pane, a.side.changes.base)
+}
+
 // gitStamp is what of a worktree's status changes its changes.
 func gitStamp(g *proto.GitInfo) string {
 	if g == nil {
@@ -580,14 +620,11 @@ func (a *App) changesFrameOf(c *ui.Context, s *proto.Session) *changesFrame {
 	if !slices.Contains(cf.bases, ch.base) {
 		ch.base = cf.bases[0]
 	}
-	pane := here
-	if ch.base == git.BaseTurn {
-		pane = turn
-	}
+	pane := changesPane(here, turn, ch.base)
 	// The list is of a worktree, not of a pane: the panes the user moves
 	// between in one show it as it was, scrolled where it was. A turn's is
 	// of its snapshot.
-	scope := changesScope(pane, ch.base)
+	scope := changesScopeOn(a.hostOf(pane.ID).name, pane, ch.base)
 	stamp := gitStamp(pane.Git)
 	if pane.Turn != nil && ch.base == git.BaseTurn {
 		stamp += "|" + pane.Turn.Tree
@@ -710,6 +747,10 @@ func (a *App) changesViewer(c *ui.Context, pal *palette, s *proto.Session, width
 	files := cf.list != nil && len(cf.list.Files) > 0
 	dirty := false
 	for _, sf := range ch.files {
+		if sf.scope != cf.scope {
+			// Another worktree's diff, which this viewer does not show.
+			continue
+		}
 		dirty = dirty || a.diffTarget(sf).dirty()
 	}
 	a.viewerHeader(c, pal, s, diffIcon, locales.SideChanges(), dirty, func() {
@@ -848,10 +889,13 @@ func (a *App) syncFiles(c *ui.Context, scope string, pane *proto.Pane, root stri
 		key := scope + "|" + f.Path
 		sf := ch.files[key]
 		if sf == nil {
-			sf = &sideFile{pane: pane.ID, base: ch.base, f: f}
+			sf = &sideFile{pane: pane.ID, base: ch.base, scope: scope, f: f}
 			ch.files[key] = sf
 		}
-		sf.root = root
+		// The pane of the list now: the one it was asked for before may
+		// be gone, with the session it was in, and the diff is asked of
+		// the pane that is in the worktree now.
+		sf.pane, sf.root = pane.ID, root
 		if a.fileCollapsed(scope, f) || sf.busy || sf.writing || a.hostOf(pane.ID).cl == nil {
 			continue
 		}
@@ -1178,7 +1222,7 @@ func (a *App) showText(sf *sideFile, t proto.GitText) {
 		now.SetLanguage(lang)
 		sf.d, sf.patch = &editor.DiffState{Old: old, New: now}, false
 		h := a.hostOf(sf.pane)
-		a.restoreEdit(sideChanges, h, h.joinPath(sf.root, sf.f.Path), now, &sf.hash)
+		a.restoreEdit(sideChanges, h, sf.scope, h.joinPath(sf.root, sf.f.Path), now, &sf.hash)
 	default:
 		replaceText(sf.d.Old, t.Old)
 		replaceText(sf.d.New, t.New)

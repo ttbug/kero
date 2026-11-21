@@ -116,11 +116,9 @@ func (d *Daemon) dropEmptyLocked(id string) bool {
 	return true
 }
 
-// pruneAutoProjects removes auto projects with no session, as after a
-// restore that couldn't bring their sessions back.
-func (d *Daemon) pruneAutoProjects() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// pruneAutoProjectsLocked removes auto projects with no session, as after a
+// restore that couldn't bring their sessions back; d.mu is held.
+func (d *Daemon) pruneAutoProjectsLocked() {
 	d.projects = slices.DeleteFunc(d.projects, func(pr proto.Project) bool {
 		return pr.Auto && !slices.ContainsFunc(d.sessions, func(s *session) bool { return s.project == pr.ID })
 	})

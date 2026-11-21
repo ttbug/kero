@@ -818,18 +818,11 @@ func run(args []string, host string) error {
 		if err != nil {
 			return err
 		}
-		ref := f.vals["target"]
-		if ref == "" {
-			ref = current()
-		}
-		if ref == "" {
-			return usageErr("which pane? run it in Kero, or give --session")
-		}
-		t, err := find(st, ref)
+		t, body, err := notifyTarget(st, f)
 		if err != nil {
 			return err
 		}
-		return c.Call("notify", proto.NotifyParams{ID: t.ref(), Title: f.vals["title"], Body: strings.Join(append(f.pos, f.rest...), " ")}, nil)
+		return c.Call("notify", proto.NotifyParams{ID: t.ref(), Title: f.vals["title"], Body: body}, nil)
 	}
 	return usageErr("unknown command %q (see kero help)", cmd)
 }
@@ -912,13 +905,14 @@ func repoPath(root, p string, remote bool) (string, error) {
 		return "", nil
 	}
 	if remote {
+		// A Windows host's worktree root has backslashes, as a path
+		// given of it may: write both as slashes before comparing them.
 		p = strings.ReplaceAll(p, `\`, "/")
-		if strings.HasPrefix(p, "/") {
-			rel, ok := strings.CutPrefix(p, strings.TrimSuffix(root, "/")+"/")
-			if !ok {
-				return "", fmt.Errorf("%s is not in the worktree %s", p, root)
-			}
+		root = strings.ReplaceAll(root, `\`, "/")
+		if rel, ok := strings.CutPrefix(p, strings.TrimSuffix(root, "/")+"/"); ok {
 			p = rel
+		} else if strings.HasPrefix(p, "/") {
+			return "", fmt.Errorf("%s is not in the worktree %s", p, root)
 		}
 		return strings.TrimPrefix(path.Clean("/"+p), "/"), nil
 	}
@@ -956,6 +950,33 @@ func findOrCurrent(st proto.State, pos []string) (target, error) {
 		return find(st, ref)
 	}
 	return target{}, usageErr("which session? (outside kero, name one)")
+}
+
+// notifyTarget is the pane a notification is for, and the message it
+// carries: the target given, or the first word naming a session or a
+// pane, else the pane the command runs in.
+func notifyTarget(st proto.State, f *flags) (target, string, error) {
+	body := strings.Join(append(f.pos, f.rest...), " ")
+	if ref := f.vals["target"]; ref != "" {
+		t, err := find(st, ref)
+		return t, body, err
+	}
+	// A first word naming a session or a pane is the target, as the help
+	// says, and the message is what follows it. A word naming none is
+	// part of the message, as it is with no target at all; so is a word
+	// alone, which would leave the message empty, and which may be a
+	// session's name a message happens to spell.
+	if len(f.pos) > 1 {
+		if t, err := find(st, f.pos[0]); err == nil {
+			return t, strings.Join(append(f.pos[1:], f.rest...), " "), nil
+		}
+	}
+	ref := current()
+	if ref == "" {
+		return target{}, "", usageErr("which pane? run it in Kero, or give --session")
+	}
+	t, err := find(st, ref)
+	return t, body, err
 }
 
 func daemonCmd(args []string, host string) error {
@@ -1216,7 +1237,7 @@ func findConversation(list []proto.Conversation, ref string) (proto.Conversation
 	case 1:
 		return found[0], nil
 	}
-	return proto.Conversation{}, fmt.Errorf("%q could be %d conversations: give more of its id (see kero history)", ref, len(found))
+	return proto.Conversation{}, fmt.Errorf("%w: %q could be %d conversations: give more of its id (see kero history)", errNotFound, ref, len(found))
 }
 
 func listConversations(st proto.State, list []proto.Conversation) {

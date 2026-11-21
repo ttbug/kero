@@ -128,6 +128,11 @@ func writeAtomic(path string, data []byte) error {
 // restore starts again the sessions of the last daemon, which ended
 // without closing them.
 func (d *Daemon) restore() {
+	// The daemon's lock: the network listeners are up already, and a
+	// remote client that connects now must not read the state as it is
+	// restored.
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	data, err := os.ReadFile(d.statePath())
 	if err != nil {
 		return
@@ -140,7 +145,7 @@ func (d *Daemon) restore() {
 	if !set.RestoreSessions {
 		// The projects stay; the sessions of the last daemon do not.
 		d.projects = st.Projects
-		d.pruneAutoProjects()
+		d.pruneAutoProjectsLocked()
 		return
 	}
 	d.projects = st.Projects
@@ -175,7 +180,7 @@ func (d *Daemon) restore() {
 	}
 	// A session that couldn't come back leaves its project behind if the
 	// daemon made it.
-	d.pruneAutoProjects()
+	d.pruneAutoProjectsLocked()
 }
 
 // restorePane starts a pane of the last daemon again, under its
