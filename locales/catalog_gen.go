@@ -1900,6 +1900,16 @@ func (msgs Messages) PaneCantShow() string {
 	return Catalog.Format(msgs.locale, "paneCantShow", nil)
 }
 
+// QuickPaneIsBrowser says "The pane in focus is a browser — focus a terminal pane of the session"
+// in the language the app shows.
+func QuickPaneIsBrowser() string { return In(i18n.Locale()).QuickPaneIsBrowser() }
+
+// QuickPaneIsBrowser says "The pane in focus is a browser — focus a terminal pane of the session"
+// in the language of msgs.
+func (msgs Messages) QuickPaneIsBrowser() string {
+	return Catalog.Format(msgs.locale, "quickPaneIsBrowser", nil)
+}
+
 // PaneAttaching says "Attaching"
 // in the language the app shows.
 func PaneAttaching() string { return In(i18n.Locale()).PaneAttaching() }
@@ -2020,6 +2030,28 @@ func SvcStale() string { return In(i18n.Locale()).SvcStale() }
 // in the language of msgs.
 func (msgs Messages) SvcStale() string {
 	return Catalog.Format(msgs.locale, "svcStale", nil)
+}
+
+// SvcRunningUnreadable says "Running (pid {pid}) for {duration} · the sessions could not be read"
+// in the language the app shows.
+func SvcRunningUnreadable(pid string, duration string) string {
+	return In(i18n.Locale()).SvcRunningUnreadable(pid, duration)
+}
+
+// SvcRunningUnreadable says "Running (pid {pid}) for {duration} · the sessions could not be read"
+// in the language of msgs.
+func (msgs Messages) SvcRunningUnreadable(pid string, duration string) string {
+	return Catalog.Format(msgs.locale, "svcRunningUnreadable", map[string]any{"pid": pid, "duration": duration})
+}
+
+// SvcAnotherVersion says "Running · another version of Kero: restart it"
+// in the language the app shows.
+func SvcAnotherVersion() string { return In(i18n.Locale()).SvcAnotherVersion() }
+
+// SvcAnotherVersion says "Running · another version of Kero: restart it"
+// in the language of msgs.
+func (msgs Messages) SvcAnotherVersion() string {
+	return Catalog.Format(msgs.locale, "svcAnotherVersion", nil)
 }
 
 // DurUnderMinute says "under a minute"

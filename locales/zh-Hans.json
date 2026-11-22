@@ -198,6 +198,7 @@
   "paneExited": "已退出 {code}",
   "paneForegroundTip": "正在前台运行",
   "paneCantShow": "无法显示此窗格",
+  "quickPaneIsBrowser": "当前聚焦的窗格是浏览器——请聚焦该会话的终端窗格",
   "paneAttaching": "正在连接",
   "pageGeneral": "通用",
   "pageAppearance": "外观",
@@ -210,6 +211,18 @@
   "svcNotRunning": "未运行",
   "svcRunning": "已运行 {duration}（pid {pid}）· {sessions} 个会话，{panes} 个窗格",
   "svcStale": " · 仍是较早版本的 Kero：重启以更新",
+  "svcRunningUnreadable": "已运行 {duration}（pid {pid}）· 无法读取会话",
+  "@svcRunningUnreadable": {
+    "placeholders": {
+      "pid": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "svcAnotherVersion": "运行中 · 另一个版本的 Kero：请重启",
   "durUnderMinute": "不到一分钟",
   "durMinutes": "{n} 分钟",
   "durHours": "{n} 小时",

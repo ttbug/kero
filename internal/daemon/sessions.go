@@ -320,6 +320,12 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 	}
 	s.panes, s.focus = []*pane{pn}, pn.info.ID
 	d.mu.Lock()
+	if d.ending {
+		d.mu.Unlock()
+		pn.close()
+		d.removeWorktree(wt)
+		return proto.Session{}, errors.New("kerod is shutting down")
+	}
 	i := len(d.sessions)
 	if p.After != "" {
 		if after := d.findSessionLocked(p.After); after != nil {
@@ -338,6 +344,10 @@ func (d *Daemon) create(p proto.CreateParams) (proto.Session, error) {
 // split starts a pane beside another, in its session.
 func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 	d.mu.Lock()
+	if d.ending {
+		d.mu.Unlock()
+		return proto.Session{}, errors.New("kerod is shutting down")
+	}
 	at := d.findPaneLocked(p.Split)
 	var s *session
 	if at != nil {
@@ -376,6 +386,11 @@ func (d *Daemon) split(p proto.CreateParams) (proto.Session, error) {
 		return proto.Session{}, err
 	}
 	d.mu.Lock()
+	if d.ending {
+		d.mu.Unlock()
+		pn.close()
+		return proto.Session{}, errors.New("kerod is shutting down")
+	}
 	if !slices.Contains(d.sessions, s) {
 		d.mu.Unlock()
 		pn.close()

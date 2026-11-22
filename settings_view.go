@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"errors"
 	"io"
 	"math"
 	"os"
@@ -168,21 +169,7 @@ func (a *App) refreshAgents() {
 // refreshService asks kerod how it is, off the main thread.
 func (a *App) refreshService() {
 	go func() {
-		line := locales.SvcNotRunning()
-		if c, err := client.Connect(true); err == nil {
-			var st proto.State
-			c.Call("state", nil, &st)
-			panes := 0
-			for _, s := range st.Sessions {
-				panes += len(s.Panes)
-			}
-			up := time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Minute)
-			line = locales.SvcRunning(strconv.Itoa(c.Welcome.PID), durationWords(up), len(st.Sessions), panes)
-			if kerodStale(c.Welcome.App, c.Welcome.Build) {
-				line += locales.SvcStale()
-			}
-			c.Close()
-		}
+		line := serviceLine()
 		a.update(func() {
 			a.ss.service = line
 			if a.setWin != nil {
@@ -190,6 +177,36 @@ func (a *App) refreshService() {
 			}
 		})
 	}()
+}
+
+// serviceLine asks kerod how it is and says so, for the Settings window.
+func serviceLine() string {
+	c, err := client.Connect(true)
+	switch {
+	case errors.Is(err, client.ErrVersion):
+		// kerod runs, of a version this one cannot talk to.
+		return locales.SvcAnotherVersion()
+	case err != nil:
+		return locales.SvcNotRunning()
+	}
+	defer c.Close()
+	up := time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Minute)
+	pid := strconv.Itoa(c.Welcome.PID)
+	var st proto.State
+	if err := c.Call("state", nil, &st); err != nil {
+		// kerod runs, but its state could not be read: "0 sessions"
+		// would tell the user theirs were gone.
+		return locales.SvcRunningUnreadable(pid, durationWords(up))
+	}
+	panes := 0
+	for _, s := range st.Sessions {
+		panes += len(s.Panes)
+	}
+	line := locales.SvcRunning(pid, durationWords(up), len(st.Sessions), panes)
+	if kerodStale(c.Welcome.App, c.Welcome.Build) {
+		line += locales.SvcStale()
+	}
+	return line
 }
 
 func durationWords(d time.Duration) string {
@@ -968,9 +985,23 @@ func (a *App) terminalPage(c *ui.Context, pal *palette) {
 			slider(c, "lh", &v, 1, 2, 160, pal).OnChange(func() { a.set.LineHeight = float32(int(v*100+0.5)) / 100 })
 			ui.Textf(c, "%.2f×", s.LineHeight).FontSize(12.5).TextColor(pal.textMuted).Width(40).FontFeatures("tnum")
 		})
+		weights := []int{300, 400, 500, 600}
+		if !slices.Contains(weights, s.FontWeight) {
+			weights = append(weights, s.FontWeight)
+			slices.Sort(weights)
+		}
+		// The usual weights are named; a configured one between them shows
+		// its number rather than a blank face.
+		weightNames := map[int]string{
+			300: locales.SetWeightLight(), 400: locales.SetWeightRegular(),
+			500: locales.SetWeightMedium(), 600: locales.SetWeightSemibold(),
+		}
 		settingRow(c, pal, locales.SetWeight(), "", func() {
-			popup(c, "weight", &s.FontWeight, []int{300, 400, 500, 600}, func(w int) string {
-				return map[int]string{300: locales.SetWeightLight(), 400: locales.SetWeightRegular(), 500: locales.SetWeightMedium(), 600: locales.SetWeightSemibold()}[w]
+			popup(c, "weight", &s.FontWeight, weights, func(w int) string {
+				if name, ok := weightNames[w]; ok {
+					return name
+				}
+				return strconv.Itoa(w)
 			}, 140, pal)
 		})
 		settingRow(c, pal, locales.SetLigatures(), locales.SetLigaturesDetail(), func() {
@@ -1419,7 +1450,12 @@ func (a *App) chooseNewSessionDir() {
 		return
 	}
 	a.ss.choosingDir = true
-	win := a.win
+	// The button lives in the Settings window: the dialog is its, not the
+	// main window's, which may be closed or behind it.
+	win := a.setWin
+	if win == nil {
+		win = a.win
+	}
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Parent: win, Title: locales.NewSessionFolderTitle(), Directory: true, ButtonLabel: locales.CommonChoose(),
