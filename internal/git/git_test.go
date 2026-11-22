@@ -291,3 +291,49 @@ func TestLocal(t *testing.T) {
 		t.Error("FileText read outside the worktree")
 	}
 }
+
+// A change of a file's mode is a change, as git shows it, though the
+// file's bytes are as they were.
+func TestChangedSeesAModeChange(t *testing.T) {
+	r := repo(t, map[string]string{"f.txt": "line\n"})
+	if err := os.Chmod(filepath.Join(r.Root, "f.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// On a system where a file's mode is not kept — Windows, or a
+	// filesystem with no permissions — git sees no change either.
+	if out := gitIn(t, r.Root, "status", "--porcelain"); out == "" {
+		t.Skip("the mode is not tracked here")
+	}
+	if changed, err := r.Changed(context.Background(), "HEAD", "f.txt"); err != nil || !changed {
+		t.Errorf("a change of the mode: %v, %v", changed, err)
+	}
+	if err := os.Chmod(filepath.Join(r.Root, "f.txt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := r.Changed(context.Background(), "HEAD", "f.txt"); err != nil || changed {
+		t.Errorf("the mode as it was: %v, %v", changed, err)
+	}
+}
+
+// git records only the execute bit: a revert takes it from the rev and
+// leaves the rest of the file's mode as it is.
+func TestRevertKeepsTheRestOfTheMode(t *testing.T) {
+	r := repo(t, map[string]string{"a.txt": "one\n"})
+	full := filepath.Join(r.Root, "a.txt")
+	// A group-writable file, made to run.
+	if err := os.Chmod(full, 0o774); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Revert(context.Background(), "HEAD", "a.txt", Hash([]byte("one\n")), "one\n"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The rev has no execute bit (100644), so the +x goes; the group
+	// write is not git's to take.
+	if fi.Mode().Perm() != 0o664 {
+		t.Errorf("the mode after the revert: %v", fi.Mode())
+	}
+}
