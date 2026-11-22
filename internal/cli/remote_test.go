@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,8 +31,35 @@ func TestHostsCheckSaysAFailedState(t *testing.T) {
 	}
 }
 
+// A host's kerod that cannot be talked to fails the command: the local
+// `kero daemon status` exits 4 for the same trouble, and a script sees
+// the same exit status either way.
+func TestRemoteDaemonStatusFailsWhenTheDaemonCannotBeReached(t *testing.T) {
+	_, err := remoteDaemonConnect(func() (*client.Client, error) { return nil, client.ErrVersion }, "build")
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if !errors.Is(err, errUnreachable) {
+		t.Fatalf("the error is not one of an unreachable daemon: %v", err)
+	}
+	if code := exitCode(err); code != 4 {
+		t.Errorf("the exit status is %d, want 4", code)
+	}
+	if !strings.Contains(err.Error(), "another version") {
+		t.Errorf("no word of the version that differs: %v", err)
+	}
+	// A daemon that is there but answers nothing is unreachable too.
+	_, err = remoteDaemonConnect(func() (*client.Client, error) { return nil, errors.New("the link broke") }, "build")
+	if !errors.Is(err, errUnreachable) {
+		t.Fatalf("the error is not one of an unreachable daemon: %v", err)
+	}
+}
+
 func TestSplitHost(t *testing.T) {
 	t.Setenv("KERO_HOST", "")
+	// The test runs where it runs: inside a pane of Kero, $KERO_PANE is
+	// set, and $KERO_HOST gives way to the pane's machine.
+	t.Setenv("KERO_PANE", "")
 	for _, c := range []struct {
 		args []string
 		host string
