@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -89,7 +90,10 @@ func numberKey(name, doc string, get func(*Settings) float64, set func(*Settings
 		get: func(s *Settings) []string { return []string{strconv.FormatFloat(get(s), 'f', -1, 64)} },
 		set: func(s *Settings, v []string) error {
 			n, err := strconv.ParseFloat(v[len(v)-1], 64)
-			if err != nil {
+			// NaN and the infinities are no numbers for a size or a
+			// limit: a check of theirs would pass them through, NaN
+			// less than nothing and more than anything at once.
+			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 				return fmt.Errorf("%q is not a number", v[len(v)-1])
 			}
 			set(s, n)
@@ -269,7 +273,7 @@ var keys = []key{
 			val := v[len(v)-1]
 			n := func(t string) (float32, error) {
 				f, err := strconv.ParseFloat(strings.TrimSpace(t), 32)
-				if err != nil {
+				if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 					return 0, fmt.Errorf("%q is not a number", strings.TrimSpace(t))
 				}
 				return float32(min(max(f, MinScrollMultiplier), MaxScrollMultiplier)), nil
@@ -306,12 +310,24 @@ var keys = []key{
 	{name: "env", doc: "added to every pane's environment, as NAME=value; repeat it", list: true,
 		get: func(s *Settings) []string { return slices.Clone(s.Env) },
 		set: func(s *Settings, v []string) error {
+			// Like the other lists: one bad value is said at the end and
+			// does not cost the ones after it, and an empty line clears
+			// the list.
 			s.Env = nil
+			var bad []string
 			for _, kv := range v {
+				if strings.TrimSpace(kv) == "" {
+					s.Env = nil
+					continue
+				}
 				if !strings.Contains(kv, "=") {
-					return fmt.Errorf("%q is not NAME=value", kv)
+					bad = append(bad, fmt.Sprintf("%q is not NAME=value", kv))
+					continue
 				}
 				s.Env = append(s.Env, kv)
+			}
+			if bad != nil {
+				return fmt.Errorf("%s", strings.Join(bad, "; "))
 			}
 			return nil
 		}},
@@ -628,9 +644,14 @@ func parse(data string) (Settings, []string) {
 	return s, problems
 }
 
+// quote wraps a value the reader would take wrong: one with a # in it,
+// one with spaces at its edges, an empty one. The quotes are
+// delimiters — the reader strips them again — so the value goes in as
+// it lies: strconv.Quote escaped a backslash, which the reader never
+// unescaped, so a value with a # in it gained one on every save.
 func quote(v string) string {
 	if v == "" || strings.ContainsAny(v, "#") || strings.TrimSpace(v) != v {
-		return strconv.Quote(v)
+		return `"` + v + `"`
 	}
 	return v
 }
