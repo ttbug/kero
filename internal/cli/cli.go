@@ -272,6 +272,16 @@ func parse(args []string, valued, boolean map[string]string) (*flags, error) {
 			continue
 		}
 		if canon, ok := boolean[name]; ok {
+			if hasVal {
+				// --flag=false, as the valued flags take it: false, not
+				// the flag.
+				b, err := strconv.ParseBool(val)
+				if err != nil {
+					return nil, usageErr("%s takes true or false, not %q", a, val)
+				}
+				f.set[canon] = b
+				continue
+			}
 			f.set[canon] = true
 			continue
 		}
@@ -1137,6 +1147,20 @@ func daemonCmd(args []string, host string) error {
 }
 
 // remoteDaemonCmd is kero -H <host> daemon …: how kerod on the host is,
+// remoteDaemonStatus says how the kerod c reached stands: a state it
+// could not read is said, not counted as none — no sessions would tell
+// the user theirs were gone.
+func remoteDaemonStatus(c *client.Client) {
+	running := fmt.Sprintf("kerod %d running (Kero %s, pid %d) for %s", c.Welcome.Version, orDash(c.Welcome.App), c.Welcome.PID,
+		time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second))
+	var st proto.State
+	if err := c.Call("state", nil, &st); err != nil {
+		fmt.Printf("%s\nits state: %v\n", running, err)
+		return
+	}
+	fmt.Printf("%s: %d sessions\n", running, len(st.Sessions))
+}
+
 // and restarting it, or updating Kero there, as the app does.
 func remoteDaemonCmd(sub string, args []string, host string) error {
 	rc, err := dialHost(host)
@@ -1156,10 +1180,7 @@ func remoteDaemonCmd(sub string, args []string, host string) error {
 			return nil
 		}
 		defer c.Close()
-		var st proto.State
-		c.Call("state", nil, &st)
-		fmt.Printf("kerod %d running (Kero %s, pid %d) for %s: %d sessions\n", c.Welcome.Version, orDash(c.Welcome.App), c.Welcome.PID,
-			time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second), len(st.Sessions))
+		remoteDaemonStatus(c)
 		return nil
 	case "restart":
 		if err := rc.Host(ctx, proto.HostRequest{Kind: proto.KindRestart}); err != nil {
@@ -1230,7 +1251,7 @@ func conversations(c *client.Client, st proto.State, project, query string) ([]p
 			}
 		}
 		if id == "" {
-			return nil, fmt.Errorf("no project %q", project)
+			return nil, fmt.Errorf("%w: no project %q", errNotFound, project)
 		}
 		list = slices.DeleteFunc(list, func(cv proto.Conversation) bool { return cv.Project != id })
 	}

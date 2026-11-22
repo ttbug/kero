@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"kero/internal/client"
 	"kero/internal/proto"
 )
 
@@ -172,6 +173,27 @@ func TestDaemonStatusSaysAFailedState(t *testing.T) {
 	}
 }
 
+// A remote daemon's state, which it could not give, is said too: the
+// -H form said "0 sessions" of one it never heard from.
+func TestRemoteDaemonStatusSaysAFailedState(t *testing.T) {
+	t.Setenv("KERO_CONFIG", filepath.Join(t.TempDir(), "config"))
+	sock, _ := fakeDaemon(t)
+	t.Setenv("KERO_SOCKET", sock)
+	failCall(t, "state", "the state is gone")
+	c, err := client.ConnectVia(client.Local{NoStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	out := captureStdout(t, func() { remoteDaemonStatus(c) })
+	if !strings.Contains(out, "the state is gone") {
+		t.Errorf("no word of the state that failed:\n%s", out)
+	}
+	if strings.Contains(out, "sessions") {
+		t.Errorf("it counted the sessions it has none of:\n%s", out)
+	}
+}
+
 // fakeDaemon is a kerod that answers what the CLI asks of it, and
 // remembers the calls it got. Its socket is the one the CLI is told of.
 func fakeDaemon(t *testing.T) (string, func() []string) {
@@ -293,4 +315,27 @@ func fakeResult(method string) any {
 		return proto.Session{ID: "s2", Name: "new", Focus: "p2"}
 	}
 	return nil
+}
+
+// A project that is not there is "no such target" (exit 3), as the
+// usage says, not a failure (exit 1): `kero history -p typo` told a
+// script the command failed, when it was the name that was wrong.
+func TestHistoryOfAnUnknownProjectIsNotFound(t *testing.T) {
+	t.Setenv("KERO_CONFIG", filepath.Join(t.TempDir(), "config"))
+	sock, _ := fakeDaemon(t)
+	t.Setenv("KERO_SOCKET", sock)
+	c, err := client.ConnectVia(client.Local{NoStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	st := proto.State{Projects: []proto.Project{{ID: "p1", Name: "demo"}}}
+	if _, err := conversations(c, st, "nope", ""); !errors.Is(err, errNotFound) {
+		t.Errorf("kero history -p nope: %v, want a not-found error", err)
+	}
+	// A project of a name the case differs in is the same project, and
+	// its id.
+	if list, err := conversations(c, st, "DEMO", ""); err != nil || len(list) != 0 {
+		t.Errorf("kero history -p DEMO: %v, %v conversations", err, len(list))
+	}
 }

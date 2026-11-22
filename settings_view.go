@@ -323,7 +323,11 @@ func (a *App) settingsView(c *ui.Context) {
 	}
 	// The controls edit a.set: what changed applies, and saves.
 	if !reflect.DeepEqual(a.set, a.applied) {
-		a.applySettings(a.set)
+		if err := a.applySettings(a.set); err != nil {
+			// The Settings window is where the change was made, and
+			// it says so there: the main window's toast is behind it.
+			a.ss.toast = locales.ToastSaveSettingsFailed(err.Error())
+		}
 	}
 }
 
@@ -1352,8 +1356,11 @@ func (a *App) advancedPage(c *ui.Context, pal *palette) {
 	settingsGroup(c, pal, locales.SetConfiguration(), locales.SetConfigurationDetail(), func() {
 		settingRow(c, pal, locales.SetConfigFile(), proto.ShortDir(settings.Path()), func() {
 			if button(c, "reveal-config", locales.CommonShowIn(fileManager()), "", false, pal) {
-				a.ensureConfig()
-				revealPath(settings.Path())
+				if err := a.ensureConfig(); err != nil {
+					a.ss.toast = locales.ToastSaveSettingsFailed(err.Error())
+				} else {
+					revealPath(settings.Path())
+				}
 			}
 			if button(c, "edit-config", locales.CommonOpen(), "", true, pal) {
 				a.openConfig()
@@ -1393,7 +1400,11 @@ func (a *App) advancedPage(c *ui.Context, pal *palette) {
 			if button(c, "reset", locales.SetResetButton(), "", false, pal) {
 				a.ss.confirm = &confirmation{
 					open: true, title: locales.SetResetTitle(), detail: locales.SetResetConfirmDetail(), action: locales.SetResetAction(), destroy: true,
-					run: func() { a.applySettings(settings.Default()) },
+					run: func() {
+						if err := a.applySettings(settings.Default()); err != nil {
+							a.ss.toast = locales.ToastSaveSettingsFailed(err.Error())
+						}
+					},
 				}
 			}
 		})
@@ -1427,18 +1438,27 @@ func (a *App) chooseNewSessionDir() {
 }
 
 // ensureConfig writes the configuration file, with its header, when
-// there is none yet, so that there is a file to open.
-func (a *App) ensureConfig() {
-	if _, err := os.Stat(settings.Path()); err != nil {
-		settings.Save(a.set)
+// there is none yet, so that there is a file to open. It says when it
+// could not: a configuration that was not written is not one to open,
+// and the editor would open a file of its own making instead.
+func (a *App) ensureConfig() error {
+	if _, err := os.Stat(settings.Path()); err == nil {
+		return nil
 	}
+	return settings.Save(a.set)
 }
 
-// openConfig opens the configuration in the user's text editor.
+// openConfig opens the configuration in the user's text editor. It is
+// the Settings window's own toast that says when it could not: the
+// button that asks is there, and the main window's toast is not shown
+// in it.
 func (a *App) openConfig() {
-	a.ensureConfig()
+	if err := a.ensureConfig(); err != nil {
+		a.ss.toast = locales.ToastSaveSettingsFailed(err.Error())
+		return
+	}
 	if err := openTextFile(settings.Path()); err != nil {
-		a.toast(locales.ToastOpenConfigFailed(err.Error()))
+		a.ss.toast = locales.ToastOpenConfigFailed(err.Error())
 	}
 }
 
