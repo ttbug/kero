@@ -4,6 +4,7 @@
 
 - 左侧栏参考布局及主题联动修复已完成，专项回归和渲染检查通过；全量测试存在未通过项。
 - 已处理 `main`（`2c7c487`）合入 `feat/own` 的冲突及恢复流程死锁，相关回归通过；尚未创建合并提交。
+- 已处理本轮 `main`（`4d09d61`）合入的项目改名冲突，相关回归与 race 检查通过；尚未创建本轮合并提交。
 - 本文件从本次任务开始记录，其他项目进度待确认。
 
 ## 已完成
@@ -18,6 +19,7 @@
 - 新增实际渲染回归，覆盖同一窗口内切换 Paper 深浅色、TokyoNight Moon、Catppuccin Mocha、TokyoNight Day、Plain 深浅色，检查背景和选中强调线跟随主题。
 - 合并保留会话启动失败后的 worktree 清理与空自动项目清理，回归覆盖手动项目保留、自动项目移除和同一分支重试。
 - 修复自动合并后的恢复死锁：`restore()` 持锁期间调用 `pruneAutoProjectsLocked()`，避免重复获取 daemon 锁；恢复专项与并发 race 检查通过。
+- 本轮项目改名冲突同时保留 `Auto = false` 与 `found = true`：用户改名的自动项目在清空后保留，已存在项目改名成功，未知项目返回错误；现有回归覆盖并通过。
 
 ## 进行中
 
@@ -37,6 +39,8 @@
 
 ## 最近验证
 
+- 2026-11-22：项目、空项目保留、恢复及启动失败 worktree 清理专项通过；项目未知 ID、空项目和恢复流程的 race 检查通过；`go tool mygo vet .`、冲突文件 Go 格式及 Git diff 检查通过。
+- 2026-11-22：`CGO_ENABLED=0 go test ./... -timeout=120s` 正常结束但未全通过：`TestRightSidebarMakesRoom`、两项 Zsh、`TestBridgeScript` 仍失败；新增 `TestDaemonStatusSaysAFailedState` 在默认临时目录下 Unix socket 绑定失败，使用 `TMPDIR=/tmp` 隔离复测通过。图片存储限制本轮未报失败。日志：`/tmp/kero-merge-20261122-test.log`。本轮只手动解决 daemon 冲突，未新增桌面视觉检查。
 - 2026-11-21：合并冲突相关 worktree、空项目、浏览器恢复及会话恢复专项通过；`TestRestoreWhileState` 和 `TestWorktreeGoneWhenPaneFails` 的 race 检查通过。
 - 2026-11-21：侧栏及七种主题渲染回归、`go tool mygo vet .`、`go tool mygo i18n check .`、Go 格式及 Git diff 检查通过。
 - 2026-11-21：首轮全量在 `TestBrowserPane` 恢复阶段挂起，堆栈确认重复加锁；修复后 `CGO_ENABLED=0 go test ./... -timeout=120s` 正常结束，仍有上述五项已记录失败，未宣称全仓通过。日志：`/tmp/kero-merge-full-test-final.log`；首轮堆栈：`/tmp/kero-merge-full-test.log`。

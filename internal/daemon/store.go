@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,9 +98,15 @@ func (d *Daemon) saveState() {
 	data, err := json.MarshalIndent(st, "", "  ")
 	d.mu.Unlock()
 	if err != nil {
+		d.log.Printf("the state: %v", err)
 		return
 	}
-	writeAtomic(d.statePath(), data)
+	if err := writeAtomic(d.statePath(), data); err != nil {
+		// The state stays as it was: the sessions it holds are the
+		// ones the next daemon starts again, and a failure to write
+		// them is said, not swallowed.
+		d.log.Printf("writing the state: %v", err)
+	}
 }
 
 // saveHistories writes the panes' histories that changed, or all.
@@ -112,7 +119,13 @@ func (d *Daemon) saveHistories(force bool) {
 	d.mu.Unlock()
 	for _, p := range panes {
 		if h := p.history(force); h != nil {
-			writeAtomic(d.historyPath(p.info.ID), h)
+			if err := writeAtomic(d.historyPath(p.info.ID), h); err != nil {
+				// The scrollback is the pane's still: a write that
+				// failed does not take it away, and it is saved
+				// again the next time.
+				d.log.Printf("the history of %s: %v", p.info.ID, err)
+				p.keepHistory()
+			}
 		}
 	}
 }
@@ -135,10 +148,16 @@ func (d *Daemon) restore() {
 	defer d.mu.Unlock()
 	data, err := os.ReadFile(d.statePath())
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			// No state file is a daemon that never ran; a file that
+			// cannot be read is one that is there and is lost.
+			d.log.Printf("reading the state: %v", err)
+		}
 		return
 	}
 	var st savedState
-	if json.Unmarshal(data, &st) != nil {
+	if err := json.Unmarshal(data, &st); err != nil {
+		d.log.Printf("the state of the last daemon could not be read: %v", err)
 		return
 	}
 	set := settings.Load()

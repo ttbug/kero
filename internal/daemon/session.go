@@ -73,8 +73,11 @@ type pane struct {
 	// awaiting tells that the command the pane started with runs, whose
 	// end its shell will tell (OSC 133;D, see shellArgs).
 	awaiting bool
-	closed   bool
-	changed  chan struct{} // closed and replaced on every status change
+	// ended tells that the command ended, but its shell did not tell its
+	// status: the marker said it ended, and not how.
+	ended   bool
+	closed  bool
+	changed chan struct{} // closed and replaced on every status change
 	// framing tells that frames for the clients are due, after output.
 	framing bool
 }
@@ -181,6 +184,7 @@ func (s *pane) start(command []string, env []string) error {
 	s.info.Shell = name
 	s.info.CommandExit = nil
 	s.awaiting = len(command) > 0 && marksExit(shell)
+	s.ended = false
 	s.mu.Unlock()
 	go s.pump(proc)
 	return nil
@@ -807,6 +811,17 @@ func (s *pane) detach(c *attachment) {
 	// left on another machine would show it cut off at the gone one's.
 	s.fit()
 	s.mu.Unlock()
+}
+
+// keepHistory says the pane's history is not saved yet, so that it is
+// saved again: a write that failed does not take the scrollback away.
+func (s *pane) keepHistory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.dirty = true
 }
 
 // history returns what to save of the session, when it changed: its

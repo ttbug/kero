@@ -918,10 +918,15 @@ func repoPath(root, p string, remote bool) (string, error) {
 		// A Windows host's worktree root has backslashes, as a path
 		// given of it may: write both as slashes before comparing them.
 		p = strings.ReplaceAll(p, `\`, "/")
-		root = strings.ReplaceAll(root, `\`, "/")
-		if rel, ok := strings.CutPrefix(p, strings.TrimSuffix(root, "/")+"/"); ok {
+		root = strings.TrimSuffix(strings.ReplaceAll(root, `\`, "/"), "/")
+		if p == root {
+			return "", nil // the worktree itself: every file of it
+		}
+		if rel, ok := strings.CutPrefix(p, root+"/"); ok {
 			p = rel
-		} else if strings.HasPrefix(p, "/") {
+		} else if strings.HasPrefix(p, "/") || drivePath(p) {
+			// An absolute path of another machine is of its own tree,
+			// and the worktree's root is the only one here.
 			return "", fmt.Errorf("%s is not in the worktree %s", p, root)
 		}
 		return strings.TrimPrefix(path.Clean("/"+p), "/"), nil
@@ -938,6 +943,13 @@ func repoPath(root, p string, remote bool) (string, error) {
 		return "", nil
 	}
 	return filepath.ToSlash(rel), nil
+}
+
+// drivePath tells whether a path is of a Windows drive, as "C:/x" is:
+// an absolute path of a Windows machine, which is not of the worktree
+// unless it is under it.
+func drivePath(p string) bool {
+	return len(p) >= 2 && p[1] == ':'
 }
 
 // current is the pane a command runs in, inside kero.
@@ -1005,14 +1017,20 @@ func daemonCmd(args []string, host string) error {
 			fmt.Println("kerod is not running")
 		} else {
 			defer c.Close()
+			running := fmt.Sprintf("kerod %d running (Kero %s, pid %d) for %s", c.Welcome.Version, orDash(c.Welcome.App), c.Welcome.PID,
+				time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second))
 			var st proto.State
-			c.Call("state", nil, &st)
-			panes := 0
-			for _, s := range st.Sessions {
-				panes += len(s.Panes)
+			if err := c.Call("state", nil, &st); err != nil {
+				// No state is no sessions: saying of none would tell
+				// the user their sessions were gone.
+				fmt.Printf("%s\nits state: %v\n", running, err)
+			} else {
+				panes := 0
+				for _, s := range st.Sessions {
+					panes += len(s.Panes)
+				}
+				fmt.Printf("%s: %d sessions, %d panes\n", running, len(st.Sessions), panes)
 			}
-			fmt.Printf("kerod %d running (Kero %s, pid %d) for %s: %d sessions, %d panes\n", c.Welcome.Version, orDash(c.Welcome.App), c.Welcome.PID,
-				time.Since(time.UnixMilli(c.Welcome.Started)).Round(time.Second), len(st.Sessions), panes)
 		}
 		fmt.Println("socket:", proto.SocketPath())
 		if svc.Installed {
@@ -1331,6 +1349,10 @@ func orDash(s string) string {
 	return s
 }
 
+// parseTimeout is a timeout in milliseconds: a duration ("5s", "1m30s"),
+// or a number of seconds. A timeout of less than none is a usage error:
+// the daemon takes a timeout of none for "wait till it ends", so a
+// negative one would wait for ever, which is no timeout at all.
 func parseTimeout(s string) (int64, error) {
 	if s == "" {
 		return 0, nil
@@ -1342,6 +1364,9 @@ func parseTimeout(s string) (int64, error) {
 			return 0, usageErr("bad timeout %q", s)
 		}
 		d = time.Duration(n) * time.Second
+	}
+	if d < 0 {
+		return 0, usageErr("bad timeout %q: less than none", s)
 	}
 	return d.Milliseconds(), nil
 }
