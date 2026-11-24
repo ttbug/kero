@@ -212,9 +212,18 @@ func newApp() *App {
 
 func prefsPath() string { return filepath.Join(proto.Dir(), "app.json") }
 
+// loadPrefs reads the preferences the app remembers between runs. A
+// preference file that could not be read is said: the app forgets what it
+// remembered, and the user is told nothing of it otherwise. A file that is
+// not there is no news: there was nothing to remember.
 func (a *App) loadPrefs() {
-	if b, err := os.ReadFile(prefsPath()); err == nil {
-		json.Unmarshal(b, &a.prefs)
+	b, err := os.ReadFile(prefsPath())
+	if err != nil {
+		if !os.IsNotExist(err) {
+			a.toast(locales.ToastPrefsUnreadable(err.Error()))
+		}
+	} else if err := json.Unmarshal(b, &a.prefs); err != nil {
+		a.toast(locales.ToastPrefsUnreadable(err.Error()))
 	}
 	if a.prefs.SidebarWidth == 0 {
 		a.prefs.SidebarWidth = defaultSidebar
@@ -231,17 +240,29 @@ func (a *App) loadPrefs() {
 	}
 }
 
+// savePrefs writes the preferences the app remembers between runs. A
+// write that fails is said: the app forgets what it remembered.
 func (a *App) savePrefs() {
 	a.prefs.Selected = a.selected
-	b, err := json.MarshalIndent(a.prefs, "", "  ")
+	if err := writePrefs(a.prefs); err != nil {
+		a.toast(locales.ToastPrefsUnsaved(err.Error()))
+	}
+}
+
+// writePrefs writes the preferences, and says whether it wrote them.
+func writePrefs(p prefs) error {
+	b, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	os.MkdirAll(proto.Dir(), 0o700)
+	if err := os.MkdirAll(proto.Dir(), 0o700); err != nil {
+		return err
+	}
 	tmp := prefsPath() + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		os.Rename(tmp, prefsPath())
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
 	}
+	return os.Rename(tmp, prefsPath())
 }
 
 // update runs fn on the main thread, and draws.
@@ -701,31 +722,30 @@ func (a *App) ensureTerm(id string) {
 			return
 		}
 		g := &gated{Stream: stream, ready: make(chan struct{})}
-		o := a.termOptions(id, g)
-		// The terminal shows kerod's frames: kerod's terminal is the
-		// session's, ours shows what it shows, cell for cell, and lays out
-		// nothing of the program's own. It takes the sizes kerod's does,
-		// between the frames of one size and the next.
-		o.ResizeByConn = true
-		term, err := terminal.New(o)
-		if err != nil {
-			stream.Close()
-			a.update(func() {
-				if a.terms[id] == e {
-					e.err = err.Error()
-				}
-			})
-			return
-		}
-		term.Resize(stream.Welcome.Cols, stream.Welcome.Rows)
-		stream.OnResized = term.Resize
-		close(g.ready)
 		a.update(func() {
 			if a.terms[id] != e {
-				term.Close()
 				stream.Close()
 				return
 			}
+			// The options take the app's state, which is the main
+			// thread's alone: the goroutine above may only dial.
+			o := a.termOptions(id, g)
+			// The terminal shows kerod's frames: kerod's terminal is the
+			// session's, ours shows what it shows, cell for cell, and lays out
+			// nothing of the program's own. It takes the sizes kerod's does,
+			// between the frames of one size and the next.
+			o.ResizeByConn = true
+			term, err := terminal.New(o)
+			if err != nil {
+				stream.Close()
+				if a.terms[id] == e {
+					e.err = err.Error()
+				}
+				return
+			}
+			term.Resize(stream.Welcome.Cols, stream.Welcome.Rows)
+			stream.OnResized = term.Resize
+			close(g.ready)
 			e.term, e.stream = term, stream
 			// Shown, it takes the window's size (claimShown).
 			if s := a.session(a.selected); s != nil && a.here() && slices.Contains(shownPanes(s), id) {
@@ -858,6 +878,8 @@ func macKeySend(mods ui.Modifiers, key ui.Key) []byte {
 	return nil
 }
 
+// termOptions builds a terminal's options. It reads the app's state and
+// so runs on the main thread, where the attach goroutines hand it over.
 func (a *App) termOptions(id string, conn *gated) terminal.Options {
 	light, dark := a.termThemes()
 	o := terminal.Options{
@@ -1710,11 +1732,44 @@ func (a *App) endAndQuit() {
 	a.ending = true
 	cl := a.local().cl
 	go func() {
-		if cl != nil {
-			cl.Call("shutdown", nil, nil)
+		if err := endSessions(cl); err != nil {
+			// The sessions were not ended: quitting now would leave them
+			// running, and the user would think they were ended. Say so,
+			// and let them quit anyway.
+			a.update(func() { a.endFailed(err) })
+			return
 		}
 		quitApp()
 	}()
+}
+
+// endSessions asks kerod to end this machine's sessions and to stop, and
+// returns what it could not do.
+func endSessions(cl *client.Client) error {
+	if cl == nil {
+		return nil
+	}
+	return cl.Call("shutdown", nil, nil)
+}
+
+// endFailed says that this machine's sessions were not ended, and asks
+// the user what to do: try again, or quit and leave them running.
+func (a *App) endFailed(err error) {
+	a.ending = false
+	a.confirm = &confirmation{
+		open:   true,
+		title:  locales.ConfirmEndFailedTitle(),
+		detail: locales.ConfirmEndFailedDetail(err.Error()),
+		action: locales.CommonTryAgain(),
+		run:    a.endAndQuit,
+		alt:    locales.CommonQuitAnyway(),
+		altRun: quitApp,
+	}
+	// The window that was closed is where the ask goes: open one, as
+	// the quit that asks first does.
+	if !a.winOpen {
+		a.showWindow()
+	}
 }
 
 // daemonStale reports whether kerod runs another version of Kero than

@@ -526,6 +526,16 @@ func (msgs Messages) CommonTryAgain() string {
 	return Catalog.Format(msgs.locale, "commonTryAgain", nil)
 }
 
+// CommonQuitAnyway says "Quit Anyway"
+// in the language the app shows.
+func CommonQuitAnyway() string { return In(i18n.Locale()).CommonQuitAnyway() }
+
+// CommonQuitAnyway says "Quit Anyway"
+// in the language of msgs.
+func (msgs Messages) CommonQuitAnyway() string {
+	return Catalog.Format(msgs.locale, "commonQuitAnyway", nil)
+}
+
 // CommonOpen says "Open"
 // in the language the app shows.
 func CommonOpen() string { return In(i18n.Locale()).CommonOpen() }
@@ -726,6 +736,26 @@ func (msgs Messages) ToastCopiedToClipboard() string {
 	return Catalog.Format(msgs.locale, "toastCopiedToClipboard", nil)
 }
 
+// ToastPrefsUnreadable says "Couldn’t read your preferences: {error}"
+// in the language the app shows.
+func ToastPrefsUnreadable(error string) string { return In(i18n.Locale()).ToastPrefsUnreadable(error) }
+
+// ToastPrefsUnreadable says "Couldn’t read your preferences: {error}"
+// in the language of msgs.
+func (msgs Messages) ToastPrefsUnreadable(error string) string {
+	return Catalog.Format(msgs.locale, "toastPrefsUnreadable", map[string]any{"error": error})
+}
+
+// ToastPrefsUnsaved says "Couldn’t save your preferences: {error}"
+// in the language the app shows.
+func ToastPrefsUnsaved(error string) string { return In(i18n.Locale()).ToastPrefsUnsaved(error) }
+
+// ToastPrefsUnsaved says "Couldn’t save your preferences: {error}"
+// in the language of msgs.
+func (msgs Messages) ToastPrefsUnsaved(error string) string {
+	return Catalog.Format(msgs.locale, "toastPrefsUnsaved", map[string]any{"error": error})
+}
+
 // ToastSaveSettingsFailed says "Couldn’t save the settings: {error}"
 // in the language the app shows.
 func ToastSaveSettingsFailed(error string) string {
@@ -748,6 +778,18 @@ func ToastOpenConfigFailed(error string) string {
 // in the language of msgs.
 func (msgs Messages) ToastOpenConfigFailed(error string) string {
 	return Catalog.Format(msgs.locale, "toastOpenConfigFailed", map[string]any{"error": error})
+}
+
+// ToastBackupUnreadable says "Couldn’t restore your unsaved edits: {error}"
+// in the language the app shows.
+func ToastBackupUnreadable(error string) string {
+	return In(i18n.Locale()).ToastBackupUnreadable(error)
+}
+
+// ToastBackupUnreadable says "Couldn’t restore your unsaved edits: {error}"
+// in the language of msgs.
+func (msgs Messages) ToastBackupUnreadable(error string) string {
+	return Catalog.Format(msgs.locale, "toastBackupUnreadable", map[string]any{"error": error})
 }
 
 // ToastPasteImageFailed says "Couldn’t paste the image: {error}. Try again, or drop the image file on the pane."
@@ -1064,6 +1106,28 @@ func ConfirmQuitAllAction() string { return In(i18n.Locale()).ConfirmQuitAllActi
 // in the language of msgs.
 func (msgs Messages) ConfirmQuitAllAction() string {
 	return Catalog.Format(msgs.locale, "confirmQuitAllAction", nil)
+}
+
+// ConfirmEndFailedTitle says "Couldn’t end the sessions"
+// in the language the app shows.
+func ConfirmEndFailedTitle() string { return In(i18n.Locale()).ConfirmEndFailedTitle() }
+
+// ConfirmEndFailedTitle says "Couldn’t end the sessions"
+// in the language of msgs.
+func (msgs Messages) ConfirmEndFailedTitle() string {
+	return Catalog.Format(msgs.locale, "confirmEndFailedTitle", nil)
+}
+
+// ConfirmEndFailedDetail says "Kero could not end this machine’s sessions, so they keep running: {error}"
+// in the language the app shows.
+func ConfirmEndFailedDetail(error string) string {
+	return In(i18n.Locale()).ConfirmEndFailedDetail(error)
+}
+
+// ConfirmEndFailedDetail says "Kero could not end this machine’s sessions, so they keep running: {error}"
+// in the language of msgs.
+func (msgs Messages) ConfirmEndFailedDetail(error string) string {
+	return Catalog.Format(msgs.locale, "confirmEndFailedDetail", map[string]any{"error": error})
 }
 
 // ConfirmRestartServiceTitle says "Restart the background service?"
