@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -132,6 +133,8 @@ Usage:
   kero report <state> [message] [--kind k] [--progress n] [--app a] [--id i]
                                 report this program's status (OSC 7501):
                                 idle, working, done, blocked, error, clear
+                                (--kind is of a blocked report; --progress
+                                is 0-100, of a working or blocked one)
   kero do <action> [key=value…]  run an action of the app, as its menus do
                                 (needs Remote Control, in Settings › Agents)
   kero actions                  list the actions kero do runs
@@ -425,7 +428,14 @@ func run(args []string, host string) error {
 		// Here, unless the session is of another machine, whose kerod
 		// then starts it in the project's directory, or the home.
 		if dir == "" && f.vals["project"] == "" && host == "" {
-			dir, _ = os.Getwd()
+			var err error
+			dir, err = os.Getwd()
+			if err != nil {
+				// The directory the command ran from is gone: starting
+				// the session in the home instead would put it somewhere
+				// the user did not pick, with no word about it.
+				return fmt.Errorf("the current directory could not be read: %w", err)
+			}
 		}
 		var s proto.Session
 		if err := c.Call("create", proto.CreateParams{
@@ -461,11 +471,17 @@ func run(args []string, host string) error {
 		if err != nil {
 			return err
 		}
-		dir := "right"
-		for _, d := range []string{"down", "left", "up"} {
+		dir := ""
+		for _, d := range []string{"right", "down", "left", "up"} {
 			if f.set[d] {
+				if dir != "" {
+					return usageErr("kero split: one of --right, --down, --left or --up, not several")
+				}
 				dir = d
 			}
+		}
+		if dir == "" {
+			dir = "right" // the split's own answer
 		}
 		ratio, err := parseRatio(f.vals["ratio"])
 		if err != nil {
@@ -809,13 +825,22 @@ func run(args []string, host string) error {
 			return err
 		}
 		remove := f.set["remove"]
+		// A restart starts the pane's shell again, and keeps everything
+		// else: it takes none of a close's flags, which it would answer
+		// with while doing nothing about them.
+		if cmd == "restart" {
+			if remove {
+				return usageErr("--remove-worktree is close's")
+			}
+			if f.set["force"] {
+				return usageErr("--force is close's")
+			}
+			return c.Call("restart", proto.IDParams{ID: t.ref()}, nil)
+		}
 		if remove && t.s.Worktree == nil {
 			return fmt.Errorf("session %s has no worktree of its own", t.s.ID)
 		}
-		switch {
-		case cmd == "restart":
-			return c.Call("restart", proto.IDParams{ID: t.ref()}, nil)
-		case t.pane != "" && len(t.s.Panes) > 1 && !remove:
+		if t.pane != "" && len(t.s.Panes) > 1 && !remove {
 			return c.Call("pane.close", proto.IDParams{ID: t.pane}, nil)
 		}
 		return c.Call("close", proto.CloseParams{ID: t.s.ID, RemoveWorktree: remove, Force: f.set["force"]}, nil)
@@ -1483,6 +1508,75 @@ func parseStatuses(cmd, v string) ([]string, error) {
 	return want, nil
 }
 
+// parseProgress is a percentage of the work a report is of: a number
+// between none and all. A progress that is no number is a usage error,
+// and one out of the share a report can have too: kerod takes only a
+// number between 0 and 100, and drops the rest, so the report would say
+// nothing of the work it is of.
+func parseProgress(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 100 {
+		return 0, usageErr("kero report --progress takes a percentage between 0 and 100, not %q", s)
+	}
+	return n, nil
+}
+
+// reportNameRe is a segment of a report's id, and its app's name, as
+// kerod reads them (internal/daemon/osc.go): at most 32 letters, digits
+// and . _ + -.
+var reportNameRe = regexp.MustCompile(`^[A-Za-z0-9_.+-]{1,32}$`)
+
+// reportValues checks a report's values by the rule kerod reads them with
+// (internal/daemon/osc.go). A value that breaks the rule is dropped
+// there: an id loses the whole report with it, and a kind, an app or a
+// progress of the wrong state loses only its own value — and the report
+// says less than the program meant, with nothing said where it was
+// written.
+func reportValues(state string, vals map[string]string) error {
+	if p := vals["progress"]; p != "" {
+		if _, err := parseProgress(p); err != nil {
+			return err
+		}
+		// A progress is of the work a report is of, and kerod reads one
+		// only where there is work to be part way through.
+		if state != "working" && state != "blocked" {
+			return usageErr("kero report --progress is of a report that is working or blocked, not one that is %s", state)
+		}
+	}
+	if k := vals["kind"]; k != "" {
+		switch k {
+		case "permission", "question", "auth":
+		default:
+			return usageErr("kero report --kind takes permission, question or auth, not %q", k)
+		}
+		// A kind is what the program waits for, and it waits only when it
+		// is blocked.
+		if state != "blocked" {
+			return usageErr("kero report --kind is of a report that is blocked, not one that is %s", state)
+		}
+	}
+	if id := vals["id"]; id != "" {
+		// kerod splits the id on "/" and keeps eight segments of at most
+		// 32 each, 128 in all: an id past that is not read as a shorter
+		// one, the whole report is dropped.
+		if len(id) > 128 || strings.Count(id, "/") > 7 {
+			return usageErr("kero report --id takes up to 8 segments and 128 characters, not %q", id)
+		}
+		for _, seg := range strings.Split(id, "/") {
+			if !reportNameRe.MatchString(seg) {
+				return usageErr("kero report --id takes segments of at most 32 letters, digits and . _ + -, not %q", id)
+			}
+		}
+	}
+	if app := vals["app"]; app != "" && !reportNameRe.MatchString(app) {
+		return usageErr("kero report --app takes at most 32 letters, digits and . _ + -, not %q", app)
+	}
+	return nil
+}
+
 func printJSON(v any) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -1559,6 +1653,9 @@ func report(args []string) error {
 	state := f.pos[0]
 	if !slices.Contains([]string{"idle", "working", "done", "blocked", "error", "clear"}, state) {
 		return usageErr("unknown state %q", state)
+	}
+	if err := reportValues(state, f.vals); err != nil {
+		return err
 	}
 	pairs := []string{"state=" + state}
 	for _, k := range []string{"id", "kind", "progress", "app"} {
