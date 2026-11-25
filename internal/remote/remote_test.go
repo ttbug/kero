@@ -173,6 +173,11 @@ func TestDialWindows(t *testing.T) {
 		t.Setenv("KERO_TEST_SHELL", shell)
 		t.Setenv("KERO_TEST_SSH_LOG", log)
 		a := Addr{Scheme: "ssh", Host: fmt.Sprintf("devbox%d", i)}
+		// The remembered shell is the process's own: a second run of the
+		// tests in one process (go test -count=2) would find it and start
+		// with the shell's bridge, so the first of the two dials would
+		// probe nothing. Each host starts clean.
+		shells.Delete(a.String())
 		for range 2 {
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			_, err := Dial(ctx, a, Options{})
@@ -549,5 +554,37 @@ func TestInstallOfAWslHostIsOfWindows(t *testing.T) {
 	_, err := InstallCommand(Addr{Scheme: "wsl", Host: "Ubuntu"}, "", true)
 	if err == nil || !strings.Contains(err.Error(), "Windows") {
 		t.Fatalf("the install command: %v", err)
+	}
+}
+
+// A host that has answered and ended takes the hello nowhere: the write
+// to its closed pipe fails with a broken pipe. That is the program's
+// end read early — what the program said last (here: no kero there) is
+// the why, not the write's "broken pipe". The Windows shell probe dials
+// twice, and the second bridge can end before the hello reaches it.
+func TestHandshakeReadsAWriteToAnEndedBridgeAsItsEnd(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close() // no reader: a write fails with a broken pipe
+	cmd := exec.Command("sh", "-c", "echo 'kero is not installed on devbox' >&2; exit 127")
+	c := &cmdConn{cmd: cmd, ssh: true, stdin: w, eof: make(chan struct{}), done: make(chan struct{})}
+	cmd.Stderr = &c.stderr
+	runErr := cmd.Run()
+	if runErr == nil {
+		t.Fatal("the program was to end 127")
+	}
+	// The program is done and its end is known, as the bridge's goroutine
+	// records it once the pipes close.
+	c.err = runErr
+	close(c.done)
+
+	_, err = handshake(context.Background(), c, Addr{Scheme: "ssh", Host: "devbox"}, Options{})
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("%v, want ErrNotInstalled", err)
 	}
 }

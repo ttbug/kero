@@ -75,9 +75,14 @@ func Install(exe string, stop func() error) error {
 		return err
 	}
 	// The unit that was there is kept: a failed install does not take
-	// away a service that worked.
+	// away a service that worked. A unit that is not there is none;
+	// one that cannot be read is not known to be none, and an install
+	// that fails would remove it as though none had been.
 	old, err := os.ReadFile(file())
 	hadOld := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	if err := os.WriteFile(file(), []byte(unit(exe)), 0o644); err != nil {
 		return err
 	}
@@ -149,7 +154,9 @@ func Uninstall() error {
 	if err := os.Remove(file()); err != nil {
 		return err
 	}
-	systemctl("daemon-reload")
+	if _, err := systemctl("daemon-reload"); err != nil {
+		return fmt.Errorf("systemd did not take the unit's removal: %w", err)
+	}
 	return nil
 }
 

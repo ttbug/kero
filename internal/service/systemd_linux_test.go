@@ -73,6 +73,35 @@ func TestInstallKeepsTheUnitWhenTheDaemonDoesNotStop(t *testing.T) {
 	}
 }
 
+// A unit that is there but cannot be read is not "there was none": the
+// install says the read failed — an install that failed does not remove
+// a unit it could not check.
+func TestInstallSaysAUnitItCannotRead(t *testing.T) {
+	oldUnit(t)
+	fakeSystemctl(t, "restart")
+	// The unit's path holds a directory: reading it fails — not "no
+	// such file" — which is not "there was none". The install says the
+	// read failed, and the directory it could not read stays.
+	f := file()
+	if err := os.Remove(f); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(f, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(f) })
+	err := Install("/usr/bin/kerod", nil)
+	if err == nil {
+		t.Fatal("the install succeeded")
+	}
+	if _, statErr := os.Stat(f); statErr != nil {
+		t.Fatalf("the unit is gone: %v — a failed install removed what it could not read", statErr)
+	}
+	if !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("the install: %v, want the read's failure", err)
+	}
+}
+
 // An install that fails takes away no unit of its own: there was none.
 func TestInstallTakesNoUnitWhenThereWasNone(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -95,5 +124,16 @@ func TestUninstallKeepsTheUnitWhenSystemdDoesNotStopIt(t *testing.T) {
 	}
 	if _, err := os.Stat(file()); err != nil {
 		t.Fatalf("the unit is gone: %v", err)
+	}
+}
+
+// A systemd that did not take the unit's removal is not an uninstall
+// that worked: systemd keeps the removed unit in memory and still lists
+// it, so the error says what happened.
+func TestUninstallSaysWhenDaemonReloadFails(t *testing.T) {
+	oldUnit(t)
+	fakeSystemctl(t, "daemon-reload")
+	if err := Uninstall(); err == nil {
+		t.Fatal("the uninstall succeeded")
 	}
 }
