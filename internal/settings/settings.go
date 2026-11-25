@@ -284,10 +284,11 @@ func Path() string { return ConfigPath() }
 func legacyPath() string { return filepath.Join(proto.Dir(), "settings.json") }
 
 var (
-	mu       sync.Mutex
-	cache    *Settings
-	mtime    int64
-	problems []string
+	mu            sync.Mutex
+	cache         *Settings
+	cacheProblems []string
+	mtime         int64
+	problems      []string
 )
 
 // Load returns the settings, the defaults where the file says nothing.
@@ -302,26 +303,41 @@ func Load() Settings {
 		// No configuration is no news; one that is there but cannot be
 		// told of is said, as a file that cannot be read is below.
 		if os.IsNotExist(err) {
-			cache, problems = nil, nil
+			cache, cacheProblems, problems = nil, nil, nil
 		} else {
-			cache = nil
 			problems = []string{fmt.Sprintf("the configuration could not be read: %v", err)}
 		}
-		return Default()
+		return lastRead()
 	}
 	if cache != nil && st.ModTime().UnixNano() == mtime {
+		// The problems of the read the cache holds, not the ones a look
+		// that failed on the way here left: the trouble they named is
+		// over, though the file did not change under it.
+		problems = cacheProblems
 		return clone(*cache)
 	}
 	b, err := os.ReadFile(Path())
 	if err != nil {
-		// The file is there but cannot be read: the defaults stand in,
-		// and the failure is said, as the parse's problems are.
+		// The file is there but cannot be read: the settings as they
+		// were last read stand, and the failure is said, as the parse's
+		// problems are.
 		problems = []string{fmt.Sprintf("the configuration could not be read: %v", err)}
-		return Default()
+		return lastRead()
 	}
 	s, probs := parse(string(b))
-	cache, mtime, problems = &s, st.ModTime().UnixNano(), probs
+	cache, cacheProblems, mtime, problems = &s, probs, st.ModTime().UnixNano(), probs
 	return clone(s)
+}
+
+// lastRead returns the settings as they were last read, or the defaults
+// when there are none: a configuration that cannot be read is not a
+// configuration that says nothing, and a reader that could not read it
+// keeps what the user set.
+func lastRead() Settings {
+	if cache != nil {
+		return clone(*cache)
+	}
+	return Default()
 }
 
 // Problems returns what the file got wrong, as of the last Load: keys
@@ -378,10 +394,10 @@ func Save(s Settings) error {
 	// and would not look again.
 	if b, err := os.ReadFile(Path()); err == nil {
 		c, probs := parse(string(b))
-		cache, problems = &c, probs
+		cache, cacheProblems, problems = &c, probs, probs
 	} else {
 		c := clone(s)
-		cache, problems = &c, nil
+		cache, cacheProblems, problems = &c, nil, nil
 	}
 	if st, err := os.Stat(Path()); err == nil {
 		mtime = st.ModTime().UnixNano()

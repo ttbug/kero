@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,4 +114,124 @@ func waitFor(t *testing.T, done func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("timed out")
+}
+
+// What a file's copy lands on is not taken away before the copy is
+// there: a copy that fails leaves what was there.
+func TestCopyEntryKeepsWhatIsThereWhenTheCopyFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissions are Unix's")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file with no read permission")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	// A file that cannot be read: its copy cannot be made.
+	if err := os.WriteFile(filepath.Join(src, "f"), []byte("new"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "f"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyEntry(filepath.Join(src, "f"), filepath.Join(dst, "f"), true); err == nil {
+		t.Fatal("the copy went on: a file that cannot be read was copied")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dst, "f")); string(b) != "old" {
+		t.Errorf("what was there is gone: %q", b)
+	}
+	// Nothing of the copy is left behind.
+	entries, _ := os.ReadDir(dst)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".kero-copy-") {
+			t.Errorf("the copy left %s behind", e.Name())
+		}
+	}
+}
+
+// A folder's copy that fails leaves the folder that was there as well:
+// a copy that is half made is not a copy.
+func TestCopyEntryKeepsWhatIsThereWhenAFolderCopyFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissions are Unix's")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file with no read permission")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	in := filepath.Join(src, "d", "in")
+	if err := os.MkdirAll(in, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(in, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A folder of the copy that cannot be read: the copy of it cannot be
+	// made whole.
+	if err := os.Chmod(in, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(in, 0o755) })
+	if err := os.Mkdir(filepath.Join(dst, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "d", "old.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyEntry(filepath.Join(src, "d"), filepath.Join(dst, "d"), true); err == nil {
+		t.Fatal("the copy went on: a folder that cannot be read was copied")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dst, "d", "old.txt")); string(b) != "old" {
+		t.Errorf("what was there is gone: %q", b)
+	}
+	entries, _ := os.ReadDir(dst)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".kero-copy-") {
+			t.Errorf("the copy left %s behind", e.Name())
+		}
+	}
+}
+
+// A replacement that fails after the copy is made says where the whole
+// copy is: the part of what was there that could not be taken away stays,
+// and the copy is not silently left as an orphan either — it is the
+// user's, named in the failure the toast shows.
+func TestCopyEntrySaysWhereAFailedRemoveLeftTheCopy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissions are Unix's")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root enters a directory with no search permission")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	in := filepath.Join(src, "d", "in")
+	if err := os.MkdirAll(in, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(in, "b.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// What is there: a folder holding a folder whose entries cannot be
+	// reached, so the removal of it fails part way.
+	old := filepath.Join(dst, "d", "locked")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "b.txt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(old, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(old, 0o755) })
+	err := copyEntry(filepath.Join(src, "d"), filepath.Join(dst, "d"), true)
+	if err == nil {
+		t.Fatal("a copy over a folder whose removal failed was put in place")
+	}
+	if !strings.Contains(err.Error(), ".kero-copy-") {
+		t.Errorf("the failure does not say where the whole copy is: %v", err)
+	}
+	// The part of the old folder that could not be taken away stays.
+	if _, statErr := os.Stat(old); statErr != nil {
+		t.Errorf("the locked part is gone: %v", statErr)
+	}
 }

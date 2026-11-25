@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"kero/internal/actions"
 )
@@ -737,4 +738,93 @@ func TestUnreadableConfigIsSaidAndKept(t *testing.T) {
 			t.Errorf("the user's own lines are gone:\n%s", b)
 		}
 	})
+}
+
+// A configuration that is there but cannot be read is not a configuration
+// that says nothing: the settings as they were last read stand, so that
+// what the user set is not forgotten by a reader that could not read the
+// file.
+func TestUnreadableConfigKeepsTheLastSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := os.WriteFile(path, []byte("font-size = 21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KERO_HOME", dir)
+	t.Setenv("KERO_CONFIG", path)
+	mu.Lock()
+	cache, mtime = nil, 0
+	mu.Unlock()
+	t.Cleanup(func() {
+		mu.Lock()
+		cache, mtime = nil, 0
+		mu.Unlock()
+	})
+	if s := Load(); s.FontSize != 21 {
+		t.Fatalf("loaded %v, want 21", s.FontSize)
+	}
+	// The file is there, and cannot be read: a directory where it was.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Its own time, so that the file that was read is not taken for the
+	// one that is there.
+	at := time.Now().Add(time.Hour)
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
+	}
+	s := Load()
+	if got := Problems(); len(got) == 0 {
+		t.Fatal("a configuration that could not be read is said as nothing")
+	}
+	if s.FontSize != 21 {
+		t.Errorf("the settings as they were last read: %v, want 21", s.FontSize)
+	}
+}
+
+// A configuration that could not be read is said while it cannot be;
+// when it can be read again the trouble is over, though the file did not
+// change under it — the cache hit takes the problems of the read it
+// holds, not the ones the failed look left.
+func TestUnreadableConfigProblemGoesWhenAccessReturns(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root enters a directory with no search permission")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows enters a directory with no search permission")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := os.WriteFile(path, []byte("font-size = 14\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KERO_HOME", dir)
+	t.Setenv("KERO_CONFIG", path)
+	mu.Lock()
+	cache, problems = nil, nil
+	mu.Unlock()
+	Load()
+	if got := Problems(); len(got) != 0 {
+		t.Fatalf("a configuration that reads says %v", got)
+	}
+	// The folder cannot be entered, so the look at the file fails for a
+	// reason that is not "there is none".
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	Load()
+	if got := Problems(); len(got) == 0 {
+		t.Fatal("a configuration that could not be read is said")
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	Load()
+	if got := Problems(); len(got) != 0 {
+		t.Errorf("the configuration reads again, and still says %v", got)
+	}
 }
