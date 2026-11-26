@@ -1,5 +1,5 @@
 {
-  "name": "Kero",
+  "name": "Xview",
   "identifier": "sh.kero",
   "version": "2.1.36",
   "out": "build",
@@ -18,9 +18,9 @@
     },
     "entitlements": "entitlements.plist",
     "infoPlist": {
-      "NSMicrophoneUsageDescription": "A program running in Kero would like to use the microphone.",
-      "NSCameraUsageDescription": "A program running in Kero would like to use the camera.",
-      "NSAppleEventsUsageDescription": "A program running in Kero would like to control another app."
+      "NSMicrophoneUsageDescription": "A program running in Xview would like to use the microphone.",
+      "NSCameraUsageDescription": "A program running in Xview would like to use the camera.",
+      "NSAppleEventsUsageDescription": "A program running in Xview would like to control another app."
     }
   }
 }

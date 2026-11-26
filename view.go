@@ -1681,7 +1681,7 @@ func (a *App) card(c *ui.Context, pal *palette, bar ui.TitleBar, shown float32) 
 					iconButton(c, "new-session-2", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 				})
 			}
-			ui.Text(c, "Kero").FontSize(14).FontWeight(600).TextColor(pal.text)
+			ui.Text(c, "Xview").FontSize(14).FontWeight(600).TextColor(pal.text)
 			ui.Spacer(c)
 			a.controlsRoom(c, 0)
 		})

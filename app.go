@@ -470,7 +470,7 @@ func (a *App) updateTitle() {
 	if a.win == nil {
 		return
 	}
-	title := "Kero"
+	title := "Xview"
 	if s := a.session(a.selected); s != nil {
 		title = a.hostedName(s)
 	}

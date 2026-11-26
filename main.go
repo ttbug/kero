@@ -151,7 +151,7 @@ func runApp() {
 // closing it left Kero running in the menu bar or the notification area.
 func (a *App) openWindow() {
 	a.win = mygo.NewWindow(framed(mygo.WindowOptions{
-		Title:     "Kero",
+		Title:     "Xview",
 		Width:     1180,
 		Height:    760,
 		MinWidth:  560,

@@ -18,7 +18,7 @@ import (
 // Linux. While it shows, closing the window leaves Kero running there,
 // until the user quits; the icon opens the window again.
 
-// trayTemplate is the frog of the app's icon, black on transparent for
+// trayTemplate is the simplified X of the app's icon, black on transparent for
 // macOS to tint: 14 points tall in the menu bar's 18, as other apps'
 // icons are, at 2×.
 //

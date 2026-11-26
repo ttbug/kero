@@ -702,7 +702,7 @@ func adListDetail(src adblock.Source) string {
 
 func (a *App) updatesGroup(c *ui.Context, pal *palette) {
 	u := &a.ss.updates
-	version := "Kero " + mygo.App.Version()
+	version := "Xview " + mygo.App.Version()
 	switch {
 	case !u.enabled:
 		version += locales.SetVersionNoUpdate()
@@ -1294,7 +1294,7 @@ func (a *App) notificationsPage(c *ui.Context, pal *palette) {
 		settingRow(c, pal, locales.SetDockBounce(), locales.SetDockBounceDetail(), func() { toggle(c.Key("nbo"), &s.BounceDock, pal) })
 	})
 	if button(c, "test-notif", locales.SetTestNotification(), "", false, pal) {
-		n := mygo.NewNotification(mygo.NotificationOptions{Title: "Kero", Body: locales.SetTestNotificationBody(), Silent: !s.NotifySound})
+		n := mygo.NewNotification(mygo.NotificationOptions{Title: "Xview", Body: locales.SetTestNotificationBody(), Silent: !s.NotifySound})
 		go func() {
 			if err := n.Show(); err != nil {
 				a.update(func() {
