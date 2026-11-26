@@ -106,6 +106,24 @@ func TestQuotedValueRoundTrip(t *testing.T) {
 	}
 }
 
+func TestValueWithItsOwnQuotesSurvivesSave(t *testing.T) {
+	for _, value := range []string{`"quoted"`, `""`} {
+		t.Run(value, func(t *testing.T) {
+			s := Default()
+			s.FontFamily = value
+			file := ""
+			for i := 0; i < 3; i++ {
+				file = format(s, file)
+				back, problems := parse(file)
+				if len(problems) != 0 || back.FontFamily != value {
+					t.Fatalf("save %d read %q, problems %q; want %q", i+1, back.FontFamily, problems, value)
+				}
+				s = back
+			}
+		})
+	}
+}
+
 func TestKeybinds(t *testing.T) {
 	s, probs := parse("keybind = cmd+shift+x=pane.split.right\nkeybind = cmd+d=unbind\nkeybind = cmd+==text.bigger\nkeybind = ctrl+q=nope\n")
 	if s.Shortcuts["pane.split.right"] != "CmdOrCtrl+Shift+X" {
@@ -804,7 +822,7 @@ func TestUnreadableConfigProblemGoesWhenAccessReturns(t *testing.T) {
 	t.Setenv("KERO_HOME", dir)
 	t.Setenv("KERO_CONFIG", path)
 	mu.Lock()
-	cache, problems = nil, nil
+	cache, cacheProblems, problems = nil, nil, nil
 	mu.Unlock()
 	Load()
 	if got := Problems(); len(got) != 0 {
@@ -826,5 +844,36 @@ func TestUnreadableConfigProblemGoesWhenAccessReturns(t *testing.T) {
 	Load()
 	if got := Problems(); len(got) != 0 {
 		t.Errorf("the configuration reads again, and still says %v", got)
+	}
+}
+
+// A value with a line break in it cannot be written: the file is read a
+// line at a time, so it would be two lines, and the second one would set
+// a setting of its own — the font size, say, where the user asked for an
+// environment variable.
+func TestSaveRefusesAValueWithALineBreak(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	t.Setenv("KERO_HOME", dir)
+	t.Setenv("KERO_CONFIG", path)
+	mu.Lock()
+	cache, cacheProblems, problems = nil, nil, nil
+	mu.Unlock()
+
+	s := Default()
+	s.Env = []string{"A=1\nfont-size = 20"}
+	if err := Save(s); err == nil {
+		t.Fatal("a value with a line break in it was saved")
+	}
+	if b, _ := os.ReadFile(path); len(b) != 0 {
+		t.Errorf("the configuration was written anyway:\n%s", b)
+	}
+	// The setting the second line would have set is not set.
+	back := Load()
+	if back.FontSize != s.FontSize {
+		t.Errorf("the font size = %v, want %v", back.FontSize, s.FontSize)
+	}
+	if len(back.Env) != 0 {
+		t.Errorf("the environment = %q, want none", back.Env)
 	}
 }
