@@ -2,6 +2,7 @@
 
 ## 当前阶段
 
+- 已处理 `main`（`6de2a2d`）合入 `feat/one` 的图标与历史会话标题冲突，同时保留 Pi 图标／transcript 标题、Antigravity 彩色图标及当前分支的标题优先级和恢复行为；专项回归、race、静态检查及深浅色渲染通过，全量测试仍有已记录的五项失败。
 - Xview 应用名称及品牌图标替换已实现并专项验证：采用用户第二张图的彩色图案，修复系统为原透明位图补白底的问题，主图现为深色铺满的实心正方形；菜单栏使用简化的单色 X。本地 `Xview.app` 构建成功，macOS 原生图标渲染与静态检查通过，全量测试仍有此前已记录的五项失败。
 - 左侧边栏已完成第一行真实会话标题升级（保留第二行 `状态 · Agent/程序名` 不变；Agent 会话优先级为 `手动命名` > `Claude Code transcript 标题` > `Agent 首条有效用户输入` > `新会话` / `New Session`，不再采用终端 OSC 标题以免 `codex|...` 等状态串覆盖会话标题，同步更新提示卡与双击重命名逻辑）；专项回归、race 检查、渲染截图检查、`go tool mygo vet .` 与 `go tool mygo i18n check .` 均通过，全量测试仅存在既有失败项。
 - 左侧边栏已完成卡片与树形动态数据流样式改造（含品牌弧线装饰、项目计数徽章、项目卡片及 `Files & Diff`/`Project Files` 子行、从分割线垂直引出的圆角中性树干及仅在 `Working` 会话触发的动态数据流脉冲、会话图标容器与状态/程序副标题、左下角 Agent 运行计数与待审批提示卡片），并新增对 Antigravity（`agy` / `antigravity` / `antigravity-cli`）的进程识别、状态探测、官方彩色图标与侧边栏展示支持；专项回归、多主题渲染检查、`go tool mygo vet .` 与 `go tool mygo i18n check .` 均通过，全量测试存在既有/未修改包失败项。
@@ -13,6 +14,7 @@
 
 ## 已完成
 
+- `6de2a2d` 合并冲突：`icons.go` 同时注册 Pi 与 Antigravity，保留彩色位图渲染；`paneConversation` 优先采用有效 `AgentTitle`，统一使用既有 Agent 状态串过滤及 Pi 的 `π - 目录名` 过滤，保留恢复时回填标题逻辑。新增表驱动回归覆盖优先级、Pi 默认标题、Codex 状态串、路径及 Agent 名称。
 - Xview 应用名称和图标：
   - `mygo.json` 的打包名称与 macOS 权限说明改为 `Xview`，同步默认窗口标题、无会话标题、非 macOS 应用菜单名称、设置页版本名称和测试通知标题；内部命令、应用标识、数据目录及远程协议保持原有约定。
   - `resources/icon.png` 与 `resources/icon-dev.png` 采用用户第二张图中的彩色 X 和终端图案，经内置 imagegen 修正底板后导出为 1024×1024、所有像素 alpha 为 255 的深色实心 PNG，移除透明留白及预绘圆角边界，由系统裁出圆角；`icons/tray.png` 为此前导出的 64×64 彩色托盘图标。两种构建暂时共用同一主图稿。
@@ -64,6 +66,7 @@
 
 ## 最近验证
 
+- 2026-11-26（`6de2a2d` 合并冲突）：`go tool mygo vet .`、`git diff --check` 通过；会话专项与 race 检查通过（`TestPaneConversationMergedTitles`、`TestPiTitle`、`TestClaudeTitle`、`TestConversationTitleIgnoresCodexStatusAndRestoresTitle`、`Test.*Conversation`，`2.484s`）；图标与侧栏专项通过（`TestProgramIconPi`、`TestSidebarAntigravity`、`TestSidebarSessionTitle`，`1.375s`），已检查 Antigravity 深浅色渲染。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败仍为已记录的 `TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground/zsh`、`TestCommandTellsExit/zsh`、`TestBridgeScript`；日志为 `/tmp/kero-merge-6de2a2d-full.log`，截图为 `/tmp/kero-merge-6de2a2d-shots/`。未进行真实桌面窗口验证。
 - 2026-11-26（Xview 应用图标白底修复）：已先用 macOS 原生图标接口复现系统合成白色底板，再修正主图底板和透明通道；源图检查确认 1024×1024、alpha 全为 255，原生渲染后四个边缘检查点由亮色变为深色，白色底板消失。`go tool mygo vet .`、`git diff --check` 通过；本地临时签名构建通过，产物为 `build/xview-icon-no-border/darwin-arm64/Xview.app`，未安装或发布。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束，仍为此前五项失败（右侧栏、失效工作目录、两项 Zsh、远程桥接），日志为 `/tmp/xview-icon-no-border-tests.log`。本轮未改动 Go 逻辑或菜单栏图标。
 - 2026-11-26（Xview 名称与图标替换）：`go tool mygo vet .`、`git diff --check`、PNG 尺寸及透明通道检查通过；`CGO_ENABLED=0 TMPDIR=/tmp KERO_SHOTS=/tmp/xview-brand-shots go test -v -run 'TestSidebarBrandAndTasks|TestSidebarReferenceLayout|TestAwakeTray|Test.*Menu|Test.*Settings' .` 通过（`4.512s`），已检查图标深浅背景预览 `/tmp/xview-brand-preview.png` 和侧栏渲染。`CGO_ENABLED=0 TMPDIR=/tmp go tool mygo build -platform darwin/arm64 -o build/xview-brand-check -sign - -skip-notarize -skip-dmg .` 通过，产物为 `build/xview-brand-check/darwin-arm64/Xview.app`，未公证、未安装、未发布。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项与本文件此前记录一致：`TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground/zsh`、`TestCommandTellsExit/zsh`、`TestBridgeScript`；日志为 `/tmp/xview-brand-full.log`。
 - 2026-11-26（3 项 P2 标题与历史记录问题修复）：统一 `proto.IsGenericAgentTitle` 过滤 `codex|kero|Ready|...` 状态串并调整 `paneConversation` 优先读取 `AgentTitle`、`resumeConversation` 回填 `AgentTitle` 与 `agentTitleKind`、以及 `promptTitleTracker` 改为基于 rune+光标支持常见光标编辑并在方向上下键/`Tab`/修饰词跳等不可靠场景安全放弃推断；新增 `TestConversationTitleIgnoresCodexStatusAndRestoresTitle` 与光标/异常操作单测。`gofmt -l`（本次改动文件）、`git diff --check`、`go tool mygo vet .` 通过；`CGO_ENABLED=0 TMPDIR=/tmp go test -race ./internal/proto ./internal/daemon -run 'Test.*Title|TestDisplayName|TestConsoleTitle|TestClaude|TestResumeConversation|TestConversation|TestDetectAgent|TestRestore'` 通过（`proto` `2.052s`、`daemon` `5.885s`）；`CGO_ENABLED=0 TMPDIR=/tmp go test -v -run 'TestSidebar|TestSessionHoverClose|TestSessionStatusLabel|TestFold|TestNeighbor|TestGroupBranch' .` 全部通过（`8.429s`）。

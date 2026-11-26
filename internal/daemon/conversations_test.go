@@ -287,6 +287,46 @@ func TestClaudeTitle(t *testing.T) {
 	}
 }
 
+// Pi's title of a conversation is the latest session_info name (/name),
+// else the first user message.
+func TestPiTitle(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", cfg)
+	dir := filepath.Join(cfg, "sessions", "--src-app--")
+	os.MkdirAll(dir, 0o700)
+	id := "01a213c3-bb57-729c-87ce-ad4ca9a65b72"
+	path := filepath.Join(dir, "2026-11-25T17-32-04-311Z_"+id+".jsonl")
+	write := func(lines ...string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var cs convStore
+	if got := cs.piTitle(id); got != "" {
+		t.Errorf("no transcript: %q", got)
+	}
+	write(`{"type":"session","version":3,"id":"`+id+`","cwd":"/src/app"}`,
+		`{"type":"message","id":"m1","message":{"role":"user","content":[{"type":"text","text":"fix the   login\nredirect"}]}}`,
+		`{"type":"message","id":"m2","message":{"role":"user","content":"second prompt"}}`)
+	if got := cs.piTitle(id); got != "fix the login redirect" {
+		t.Errorf("first user prompt: %q", got)
+	}
+	write(`{"type":"session","version":3,"id":"`+id+`","cwd":"/src/app"}`,
+		`{"type":"message","id":"m1","message":{"role":"user","content":"fix the login"}}`,
+		`{"type":"session_info","id":"s1","name":"auth work\nmore"}`)
+	os.Chtimes(path, timeAfter(path), timeAfter(path))
+	if got := cs.piTitle(id); got != "auth work" {
+		t.Errorf("session_info title: %q", got)
+	}
+	if got := cs.piTitle("../x"); got != "" {
+		t.Errorf("a path: %q", got)
+	}
+	if !genericTitle("π - app", "pi", "/src/app") || genericTitle("π - auth work - app", "pi", "/src/app") {
+		t.Error("genericTitle for pi")
+	}
+}
+
 // timeAfter is a second after a file's modification time.
 func timeAfter(path string) time.Time {
 	st, _ := os.Stat(path)
@@ -331,6 +371,29 @@ func TestUnreadableConversationsAreSaid(t *testing.T) {
 	d.loadConversations()
 	if !strings.Contains(buf.String(), "conversations") {
 		t.Fatalf("the unreadable conversations were not said: %q", buf.String())
+	}
+}
+
+func TestPaneConversationMergedTitles(t *testing.T) {
+	for _, tt := range []struct {
+		name, agent, agentTitle, title, want string
+	}{
+		{"agent title wins", "pi", "Fix login", "π - app", "Fix login"},
+		{"generic pi title", "pi", "", "π - app", ""},
+		{"generic pi agent title", "pi", "π - app", "π - auth work - app", "π - auth work - app"},
+		{"codex status", "codex", "", "codex|kero|Ready|session", ""},
+		{"path title", "pi", "", "/src/app", ""},
+		{"agent name", "claude", "Claude Code", "Claude Code", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &pane{info: proto.Pane{
+				Agent: tt.agent, AgentTitle: tt.agentTitle, Title: tt.title, Dir: "/src/app",
+				AgentSession: &proto.AgentSession{Agent: tt.agent, ID: "019a2b3c"},
+			}}
+			if got := paneConversation(p, "", ""); got == nil || got.Title != tt.want {
+				t.Fatalf("paneConversation = %+v, want title %q", got, tt.want)
+			}
+		})
 	}
 }
 

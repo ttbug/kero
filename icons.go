@@ -85,6 +85,7 @@ func init() {
 	} {
 		programIcons[name] = glyph("si-" + logo)
 	}
+	programIcons["pi"] = glyph("pi")
 	programIcons["antigravity"] = glyph("antigravity")
 	programIcons["agy"] = programIcons["antigravity"]
 }
