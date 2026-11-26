@@ -23,8 +23,8 @@ const (
 	topBar  = 2 * barMid
 	headerH = 2 * (barMid - cardGap)
 	cardGap = 8  // around the card
-	rowH    = 64 // program and session name
-	rowH2   = 82 // with a third line for details
+	rowH    = 54 // session title + status/program
+	rowH2   = 70 // with a third line for details
 	// rowInset is the inset of historical rows and sidebar notes.
 	rowInset = 12
 )
@@ -312,19 +312,18 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		iconButton(c, "new-session", plusIcon, a.tip(locales.ActionNewSession(), "session.new"), pal, func() { a.newSession("") })
 	})
 	// The brand, as the sidebar's reference has it: a mark and a wordmark
-	// over a tagline, at the top of the list. It starts in the empty lower
-	// half of the title bar's row, as the reference puts it, and sits in
-	// the middle of the sidebar, the list below it starting at the left.
-	ui.Column(c.Key("brand")).Shrink(0).Margin(-13, 0, 0, 0).Padding(6, 12, 12, 14).Gap(3).DragWindow().AlignItems(ui.Center).Children(func() {
+	// over a tagline and a subtle glowing arc, at the top of the list.
+	ui.Column(c.Key("brand")).Shrink(0).Margin(-13, 0, 0, 0).Padding(6, 12, 8, 14).Gap(3).DragWindow().AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("wordmark")).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, terminalIcon).Size(25, 25).TextColor(pal.accent)
 			ui.Text(c, "Xview").FontSize(24).FontWeight(700).TextColor(pal.text).SingleLine()
 		})
 		ui.Text(c, "All In One 终端工作台").FontSize(12).TextColor(pal.textMuted).SingleLine()
+		brandArc(c, pal)
 	})
 	// The space between and below the rows moves the window, as the top
 	// bar does, and a double click there starts a session, as ⌘T does.
-	list := ui.Scroll(c.Key("sessions")).Grow(1).Padding(0, 3, 16, 3).DragWindow()
+	list := ui.Scroll(c.Key("sessions")).Grow(1).Padding(0, 6, 16, 6).DragWindow()
 	if list.WindowDoubleClicked() {
 		a.defer_(func() { a.newSession("") })
 	}
@@ -333,7 +332,7 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 		for _, h := range a.hosts {
 			projects += len(a.hostGroups(h))
 		}
-		sidebarSection(c.Key("tasks"), pal, locales.SidebarProjects(projects), locales.SidebarTasks(a.sessionCount()))
+		sidebarProjectSection(c.Key("tasks"), pal, projects, a.sessionCount())
 		n := 0  // the rows shown, for ⌘1–9 (Ctrl+1–9 elsewhere)
 		gi := 0 // the groups shown, the first of which sits higher
 		// Where the project dragged would go, as the last frame found it;
@@ -379,6 +378,51 @@ func (a *App) sidebar(c *ui.Context, pal *palette, bar ui.TitleBar) {
 	c.After(20 * time.Second) // times ago move on
 }
 
+func brandArc(c *ui.Context, pal *palette) {
+	arc := ui.Box(c.Key("brand-arc")).AlignSelf(ui.Stretch).Height(14).Margin(4, 0, 0, 0).PassThrough()
+	arc.Draw(func(p *ui.Painter, r ui.Rect) {
+		const segs = 28
+		yBase := r.Y + r.H - 2
+		const lift = float32(6.5)
+		px, py := r.X, yBase
+		for i := 1; i <= segs; i++ {
+			t := float32(i) / segs
+			nx := r.X + r.W*t
+			u := 2*t - 1
+			ny := yBase - lift*(1-u*u)
+			mid := 1 - abs(2*(t-0.5/segs)-1)
+			alpha := 0.04 + 0.24*mid*mid
+			p.Line(px, py, nx, ny, 1.2, pal.textMuted.Alpha(alpha))
+			px, py = nx, ny
+		}
+		cx, cy := r.X+r.W/2, yBase-lift
+		for _, glow := range []struct {
+			rad   float32
+			color ui.Color
+		}{
+			{7.5, pal.accent.Alpha(0.14)},
+			{4.5, pal.accent.Alpha(0.32)},
+			{2.6, pal.accent},
+		} {
+			var dot ui.Path
+			dot.Circle(cx, cy, glow.rad)
+			p.FillPath(&dot, glow.color)
+		}
+	})
+}
+
+func sidebarProjectSection(c *ui.Context, pal *palette, projects, sessions int) {
+	title := strings.TrimSpace(strings.TrimSuffix(locales.SidebarProjects(projects), itoa(projects)))
+	count := strings.TrimSpace(strings.TrimPrefix(locales.SidebarTasks(sessions), "·"))
+	ui.Row(c).Height(28).Padding(0, 4).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(pal.textMuted).SingleLine()
+		ui.Text(c, itoa(projects)).FontSize(10.5).FontWeight(600).FontFeatures("tnum").
+			TextColor(pal.textMuted).Padding(1, 6).Radius(5).Background(pal.chip).SingleLine()
+		ui.Spacer(c)
+		ui.Text(c, count).FontSize(11.5).FontFeatures("tnum").TextColor(pal.textFaint).SingleLine()
+	})
+}
+
 func sidebarSection(c *ui.Context, pal *palette, title, count string) {
 	ui.Row(c).Height(30).Padding(0, 6).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(pal.textMuted).SingleLine()
@@ -408,156 +452,278 @@ func (a *App) groupBody(c *ui.Context, pal *palette, g group, gi int, moving boo
 	id, key := g.project.ID, g.key()
 	collapsed := a.prefs.Collapsed[key]
 	needs := 0
+	hasSelected := false
 	for _, s := range g.sessions {
 		if s.Status == proto.Waiting {
 			needs++
 		}
+		if s.ID == a.selected {
+			hasSelected = true
+		}
 	}
-	top := float32(20)
+	top := float32(10)
 	if gi == 0 {
-		top = 2
+		top = 4
 	}
-	hdr := ui.Row(c.Key("project-"+key)).Height(30).Margin(top, 0, 3, 0).Padding(0, 6, 0, 4).Gap(10).AlignItems(ui.Center).Radius(6)
-	if !collapsed && len(g.sessions) > 0 {
-		hdr.Draw(func(p *ui.Painter, r ui.Rect) {
-			p.Line(r.X+20, r.Y+r.H/2, r.X+20, r.Y+r.H+3, 1.5, pal.textFaint.Alpha(0.65))
-		})
-	}
-	// While a project is dragged, the headers it passes do not light up.
-	hovered := hdr.Hovered() && a.projMove.id == ""
-	renaming := id != "" && a.renamingProject == id
-	// Dragged, the header takes its project to another place among its
-	// host's: a chip of it follows the pointer, and its group fades where
-	// it was.
-	if id != "" && !renaming && len(a.hostProjects(g.host)) > 1 {
-		hdr.Drag(projectDrag{g.host, id})
-		if hdr.Dragging() {
-			a.projMove.host, a.projMove.id = g.host, id
-			floating(hdr.Background(pal.popover), pal)
-		} else if moving {
-			a.defer_(func() {
-				if a.projMove.id == id {
-					a.projMove = projectMove{at: -1}
-				}
-			})
+	borderCol := pal.sideCardBorder
+	if hasSelected {
+		alpha := float32(0.28)
+		if !pal.dark {
+			alpha = 0.24
 		}
+		borderCol = pal.accent.Alpha(alpha)
 	}
-	if hdr.Clicked() && !renaming {
-		a.toggleProject(key)
-	}
-	pointerTooltip(c, hdr, "tip-project-"+key, g.host.shortDir(g.project.Dir))
-	hdr.ContextMenu(func(m *ui.Menu) {
-		if m.Item(locales.ActionNewSession()).Chosen() {
-			a.newSessionOn(g.host, id)
+	card := ui.Column(c.Key("card-"+key)).Margin(top, 0, 0, 0).Radius(10).
+		Background(pal.sideCard).Border(1, borderCol).Clip()
+	card.Children(func() {
+		hdr := ui.Row(c.Key("project-"+key)).Height(34).Padding(0, 8, 0, 8).Gap(6).AlignItems(ui.Center)
+		// While a project is dragged, the headers it passes do not light up.
+		hovered := hdr.Hovered() && a.projMove.id == ""
+		renaming := id != "" && a.renamingProject == id
+		// Dragged, the header takes its project to another place among its
+		// host's: a chip of it follows the pointer, and its group fades where
+		// it was.
+		if id != "" && !renaming && len(a.hostProjects(g.host)) > 1 {
+			hdr.Drag(projectDrag{g.host, id})
+			if hdr.Dragging() {
+				a.projMove.host, a.projMove.id = g.host, id
+				floating(hdr.Background(pal.popover), pal)
+			} else if moving {
+				a.defer_(func() {
+					if a.projMove.id == id {
+						a.projMove = projectMove{at: -1}
+					}
+				})
+			}
 		}
-		label := locales.SidebarCollapse()
-		if collapsed {
-			label = locales.SidebarExpand()
-		}
-		if m.Item(label).Chosen() {
+		if hdr.Clicked() && !renaming {
 			a.toggleProject(key)
 		}
-		if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
-			a.startProjectRename(id)
-		}
-		a.projectMenu(m, g)
-		m.Separator()
-		// A remote group's menu has its host's, as the host has no header.
-		if g.host.remote() {
-			m.Submenu(g.host.name, func(m *ui.Menu) { a.hostMenu(m, g.host) })
-		}
-		// Close All Sessions ends the sessions the project holds, not the
-		// project itself, asking first as closing the project does: what
-		// runs in them ends with them.
-		if m.Item(locales.SidebarCloseAllSessions()).Disabled(len(g.sessions) == 0).Chosen() {
-			name, count := g.project.Name, len(g.sessions)
-			a.confirm = &confirmation{
-				open:    true,
-				title:   locales.ConfirmCloseAllSessionsTitle(name),
-				detail:  locales.ConfirmCloseAllSessionsDetail(count),
-				action:  locales.SidebarCloseAllSessions(),
-				destroy: true,
-				run:     func() { a.closeAllSessions(g) },
-			}
-		}
-		if m.Item(locales.SidebarCloseProjectMenu()).Disabled(id == "").Chosen() {
-			name, count := g.project.Name, len(g.sessions)
-			a.confirm = &confirmation{
-				open:    true,
-				title:   locales.ConfirmCloseTitle(name),
-				detail:  locales.ConfirmCloseProjectDetail(count),
-				action:  locales.SidebarCloseProject(),
-				destroy: true,
-				run:     func() { a.call(id, "project.close", proto.IDParams{ID: id}, nil) },
-			}
-		}
-	})
-	hdr.Children(func() {
-		chev := ui.Icon(c, chevronIcon).Size(10, 10).TextColor(pal.textFaint).Shrink(0)
-		chev.Rotate(chev.AnimateTo("turn", 90*(1-b2f(collapsed)), ui.Snappy))
-		if renaming {
-			in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(12.5).FontWeight(600).AutoFocus()
-			if in.Shortcut(0, ui.KeyEscape) {
-				a.renamingProject = ""
-				a.focusTerminal()
-			} else if in.Submitted() || (!in.Focused() && !in.Pressed() && in.Valid() && a.renameStarted(c)) {
-				a.commitProjectRename()
-			}
-			return
-		}
-		ui.Icon(c, folderIcon).Size(16, 16).TextColor(pal.textFaint).Shrink(0)
-		ui.Text(c, g.project.Name).FontSize(14).FontWeight(650).TextColor(pal.success).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-		// The branch its sessions share, as the reference has it: a chip
-		// past the name, in the branch color.
-		if b := groupBranch(g); b != "" {
-			chip := ui.Row(c.Key("branch")).Height(18).Padding(0, 6).Gap(3).Radius(9).Background(pal.branchChip).AlignItems(ui.Center).Shrink(1).MinWidth(0)
-			chip.Children(func() {
-				ui.Icon(c, branchIcon).Size(9, 9).TextColor(pal.branchText).Shrink(0)
-				ui.Text(c, b).FontSize(10.5).TextColor(pal.branchText).SingleLine().Ellipsis("…").MaxWidth(90)
-			})
-		}
-		if g.host.remote() {
-			a.hostTag(c, pal, g.host)
-		}
-		ui.Spacer(c)
-		// A host with no row of its own tells how the app stands with it
-		// here: reconnecting, or wanting an update or restart.
-		if g.first && g.host.remote() && !a.hostNeedsRow(g.host) {
-			a.hostState(c, pal, g.host)
-		}
-		if needs > 0 {
-			ui.Text(c, locales.SidebarNeedsYou(needs)).FontSize(12.5).FontWeight(500).TextColor(pal.attention).SingleLine()
-		}
-		if hovered {
-			b := ui.ButtonBase(c.Key("add")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.NewSessionIn(g.project.Name)).Tooltip(locales.ActionNewSession())
-			if b.Hovered() {
-				b.Background(pal.rowHover).TextColor(pal.text)
-			}
-			b.Children(func() { ui.Icon(c, plusIcon).Size(13, 13) })
-			if b.Clicked() {
+		pointerTooltip(c, hdr, "tip-project-"+key, g.host.shortDir(g.project.Dir))
+		hdr.ContextMenu(func(m *ui.Menu) {
+			if m.Item(locales.ActionNewSession()).Chosen() {
 				a.newSessionOn(g.host, id)
 			}
-			if id != "" {
+			label := locales.SidebarCollapse()
+			if collapsed {
+				label = locales.SidebarExpand()
+			}
+			if m.Item(label).Chosen() {
+				a.toggleProject(key)
+			}
+			if m.Item(locales.SessionRename()).Disabled(id == "").Chosen() {
+				a.startProjectRename(id)
+			}
+			a.projectMenu(m, g)
+			m.Separator()
+			// A remote group's menu has its host's, as the host has no header.
+			if g.host.remote() {
+				m.Submenu(g.host.name, func(m *ui.Menu) { a.hostMenu(m, g.host) })
+			}
+			// Close All Sessions ends the sessions the project holds, not the
+			// project itself, asking first as closing the project does: what
+			// runs in them ends with them.
+			if m.Item(locales.SidebarCloseAllSessions()).Disabled(len(g.sessions) == 0).Chosen() {
+				name, count := g.project.Name, len(g.sessions)
+				a.confirm = &confirmation{
+					open:    true,
+					title:   locales.ConfirmCloseAllSessionsTitle(name),
+					detail:  locales.ConfirmCloseAllSessionsDetail(count),
+					action:  locales.SidebarCloseAllSessions(),
+					destroy: true,
+					run:     func() { a.closeAllSessions(g) },
+				}
+			}
+			if m.Item(locales.SidebarCloseProjectMenu()).Disabled(id == "").Chosen() {
+				name, count := g.project.Name, len(g.sessions)
+				a.confirm = &confirmation{
+					open:    true,
+					title:   locales.ConfirmCloseTitle(name),
+					detail:  locales.ConfirmCloseProjectDetail(count),
+					action:  locales.SidebarCloseProject(),
+					destroy: true,
+					run:     func() { a.call(id, "project.close", proto.IDParams{ID: id}, nil) },
+				}
+			}
+		})
+		hdr.Children(func() {
+			chev := ui.Icon(c, chevronIcon).Size(9, 9).TextColor(pal.textFaint).Shrink(0)
+			chev.Rotate(chev.AnimateTo("turn", 90*(1-b2f(collapsed)), ui.Snappy))
+			if renaming {
+				in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).FontSize(12.5).FontWeight(600).AutoFocus()
+				if in.Shortcut(0, ui.KeyEscape) {
+					a.renamingProject = ""
+					a.focusTerminal()
+				} else if in.Submitted() || (!in.Focused() && !in.Pressed() && in.Valid() && a.renameStarted(c)) {
+					a.commitProjectRename()
+				}
+				return
+			}
+			ui.Icon(c, folderIcon).Size(14, 14).TextColor(pal.textFaint).Shrink(0)
+			ui.Text(c, g.project.Name).FontSize(13).FontWeight(650).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+			// The branch its sessions share: a chip past the name, in the branch color.
+			if b := groupBranch(g); b != "" {
+				chip := ui.Row(c.Key("branch")).Height(18).Padding(0, 5).Gap(3).Radius(5).Background(pal.branchChip).AlignItems(ui.Center).Shrink(1).MinWidth(0)
+				chip.Children(func() {
+					ui.Icon(c, branchIcon).Size(9, 9).TextColor(pal.branchText).Shrink(0)
+					ui.Text(c, b).FontSize(10.5).TextColor(pal.branchText).SingleLine().Ellipsis("…").MaxWidth(80)
+				})
+			}
+			if g.host.remote() {
+				a.hostTag(c, pal, g.host)
+			}
+			ui.Spacer(c)
+			// A host with no row of its own tells how the app stands with it
+			// here: reconnecting, or wanting an update or restart.
+			if g.first && g.host.remote() && !a.hostNeedsRow(g.host) {
+				a.hostState(c, pal, g.host)
+			}
+			if needs > 0 {
+				ui.Text(c, locales.SidebarNeedsYou(needs)).FontSize(11.5).FontWeight(500).TextColor(pal.attention).SingleLine()
+			}
+			if a.set.SidebarCount {
+				ui.Textf(c, "%d", len(g.sessions)).FontSize(11.5).TextColor(pal.textFaint).FontFeatures("tnum").Shrink(0)
+			}
+			if hovered && id != "" {
 				cl := ui.ButtonBase(c.Key("close")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.SidebarCloseProject()).Tooltip(locales.SidebarCloseProject())
 				if cl.Hovered() {
 					cl.Background(pal.rowHover).TextColor(pal.text)
 				}
-				cl.Children(func() { ui.Icon(c, closeIcon).Size(12, 12) })
+				cl.Children(func() { ui.Icon(c, closeIcon).Size(11, 11) })
 				if cl.Clicked() {
 					a.confirmCloseProject(g)
 				}
 			}
+			add := ui.ButtonBase(c.Key("add")).Size(22, 22).Radius(6).Center().
+				Border(1, pal.divider).TextColor(pal.textMuted).
+				Label(locales.NewSessionIn(g.project.Name)).Tooltip(locales.ActionNewSession())
+			if add.Hovered() {
+				add.Background(pal.rowHover).TextColor(pal.text)
+			}
+			add.Children(func() { ui.Icon(c, plusIcon).Size(12, 12) })
+			if add.Clicked() {
+				a.newSessionOn(g.host, id)
+			}
+		})
+		if collapsed {
+			// Every session goes with the header, the one shown included.
+			return
 		}
-		if a.set.SidebarCount {
-			ui.Textf(c, "%d", len(g.sessions)).FontSize(12.5).TextColor(pal.textFaint).FontFeatures("tnum").Shrink(0)
+		a.projectFilesRow(c, pal, g)
+		if len(g.sessions) == 0 {
+			return
+		}
+		ui.Box(c).AlignSelf(ui.Stretch).Height(1).Background(pal.divider)
+		now := c.Now()
+		detailed := a.set.SidebarRows != "compact"
+		rowHt := float32(rowH)
+		midOff := rowHt / 2
+		if detailed {
+			rowHt = rowH2
+			midOff = 25
+		}
+		var workingY []float32
+		curY := float32(5)
+		for _, s := range g.sessions {
+			if s.Status == proto.Working {
+				workingY = append(workingY, curY+midOff)
+			}
+			curY += rowHt + 2
+			if len(s.Panes) > 1 && a.prefs.Expanded[s.ID] {
+				curY += float32(len(s.Panes)) * 31
+			}
+		}
+		rows := ui.Column(c.Key("rows-"+key)).Padding(5, 6, 6, 4).Gap(2)
+		rows.Children(func() {
+			for i, s := range g.sessions {
+				a.sessionRow(c, pal, s, n, now, i == 0, i == len(g.sessions)-1)
+			}
+			if len(workingY) > 0 {
+				a.treeDataFlow(c, pal, key, workingY)
+			}
+		})
+	})
+}
+
+func groupGit(g group, selected string) *proto.GitInfo {
+	var first *proto.GitInfo
+	for _, s := range g.sessions {
+		gi := sessionGit(s)
+		if gi == nil {
+			continue
+		}
+		if s.ID == selected {
+			return gi
+		}
+		if first == nil {
+			first = gi
+		}
+	}
+	return first
+}
+
+func (a *App) projectFilesRow(c *ui.Context, pal *palette, g group) {
+	gg := groupGit(g, a.selected)
+	hasDiff := gg != nil && (gg.Files > 0 || gg.Added > 0 || gg.Removed > 0)
+	tab := sideFiles
+	title := "Project Files"
+	shortcut := a.keys("files.toggle")
+	if hasDiff {
+		tab = sideChanges
+		title = "Files & Diff"
+		shortcut = a.keys("changes.toggle")
+	}
+	ui.Box(c).AlignSelf(ui.Stretch).Height(1).Background(pal.divider)
+	row := ui.Row(c.Key("files-"+g.key())).Height(28).Padding(0, 8, 0, 10).Gap(6).AlignItems(ui.Center)
+	if len(g.sessions) > 0 {
+		if row.Hovered() {
+			row.Background(pal.rowHover)
+		}
+		if row.Clicked() {
+			a.defer_(func() { a.openProjectSide(g, tab) })
+		}
+	}
+	row.Children(func() {
+		if hasDiff {
+			ui.Box(c).Size(6, 6).Radius(3).Background(pal.attention).Shrink(0)
+			ui.Text(c, title).FontSize(11.5).FontWeight(500).TextColor(pal.textMuted).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+		} else {
+			ui.Icon(c, fileIcon).Size(12, 12).TextColor(pal.textFaint).Shrink(0)
+			ui.Text(c, title).FontSize(11.5).TextColor(pal.textFaint).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+		}
+		ui.Spacer(c)
+		if hasDiff {
+			a.lineCounts(c, pal, gg.Added, gg.Removed, 11)
+			if gg.Files > 0 {
+				ui.Text(c, itoa(gg.Files)).FontSize(10.5).FontWeight(600).FontFeatures("tnum").
+					TextColor(pal.attention).Padding(1, 5).Radius(4).Background(pal.attnSoft).SingleLine().Shrink(0)
+			}
+		}
+		if len(g.sessions) > 0 && shortcut != "" {
+			ui.Text(c, shortcut).FontSize(10.5).TextColor(pal.textFaint).
+				Padding(1, 5).Radius(4).Background(pal.chip).SingleLine().Shrink(0)
 		}
 	})
-	if collapsed {
-		// Every session goes with the header, the one shown included.
+}
+
+func (a *App) openProjectSide(g group, tab string) {
+	if len(g.sessions) == 0 {
 		return
 	}
-	for i, s := range g.sessions {
-		a.sessionRow(c, pal, s, n, i == len(g.sessions)-1)
+	for _, s := range g.sessions {
+		if s.ID == a.selected {
+			a.toggleSide(tab)
+			return
+		}
+	}
+	target := g.sessions[0]
+	a.selectSession(target.ID)
+	a.showTab(tab)
+	if tab == sideChanges {
+		a.openView(target, sideChanges, nil)
+		if a.from == nil {
+			a.focusViewer()
+		}
 	}
 }
 
@@ -595,7 +761,7 @@ func groupBranch(g group) string {
 	return branch
 }
 
-func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, last bool) {
+func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, now time.Time, first, last bool) {
 	*n++
 	selected := s.ID == a.selected
 	detailed := a.set.SidebarRows != "compact"
@@ -604,7 +770,11 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 	if detailed {
 		height = rowH2
 	}
-	row := ui.Row(c.Key(s.ID)).Height(height).Padding(0, 8, 0, 0).AlignItems(ui.Stretch).Radius(8)
+	borderCol := ui.Transparent
+	if selected {
+		borderCol = pal.rowSelBorder
+	}
+	row := ui.Row(c.Key(s.ID)).Height(height).Padding(0, 8, 0, 0).AlignItems(ui.Stretch).Radius(8).Border(1, borderCol)
 	hovered := row.Hovered()
 	bg := ui.Transparent
 	switch {
@@ -640,9 +810,6 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 	pointerTooltip(c, row, "tip-"+s.ID, tip)
 	row.ContextMenu(func(m *ui.Menu) { a.sessionMenu(m, s) })
 	row.Children(func() {
-		if selected {
-			ui.Box(c.Key("selected-edge")).Absolute().Left(0).Top(0).Bottom(0).Width(2).Radius(1).Background(pal.accent).PassThrough()
-		}
 		if a.renaming == s.ID {
 			in := ui.TextInputBase(c.Key("rename"), &a.renameBuf).Grow(1).MinWidth(0).Margin(0, 10, 0, 28).FontSize(13.5).AutoFocus()
 			if in.Submitted() || in.Shortcut(0, ui.KeyEscape) {
@@ -657,52 +824,64 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 			}
 			return
 		}
-		// The tree puts the session under its project, then its program's
-		// mark and its name: the row tells only what the session is.
-		a.sessionTree(c, pal, last)
+		a.sessionTree(c, pal, first, last, detailed)
 		col := programColor(pal, &s.Pane)
 		if s.Process == "" && !s.Browser() && s.Status != proto.Exited {
 			col = pal.accent
 		}
-		ui.Icon(c, programIcon(&s.Pane)).Size(16, 16).TextColor(col).Shrink(0).Margin(9, 9, 0, 0)
-		name := func() {
-			name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.textMuted)
-			if s.Unread {
-				name.FontWeight(650).TextColor(pal.text)
-			}
-			if len(s.Panes) > 1 {
-				a.panesToggle(c, pal, s, expanded)
-			}
+		iconBorder := pal.divider
+		if selected {
+			iconBorder = pal.accent.Alpha(0.35)
 		}
-		status := func() {
-			ui.Row(c.Key("status")).Gap(6).AlignItems(ui.Center).Children(func() {
-				if s.Status != proto.Idle || s.Unread {
-					statusDot(c, pal, s, 7)
-					ui.Text(c, sessionStatusLabel(s)).FontSize(11).FontWeight(500).TextColor(sessionStatusColor(pal, s)).SingleLine().Shrink(0)
+		iconWrap := ui.Column(c).Shrink(0).Padding(0, 8, 0, 0).Justify(ui.Center)
+		if detailed {
+			iconWrap.Justify(ui.Start).Padding(11, 8, 0, 0)
+		}
+		iconWrap.Children(func() {
+			ui.Box(c).Size(26, 26).Radius(7).Center().Background(pal.sideIconBg).Border(1, iconBorder).
+				Children(func() { ui.Icon(c, programIcon(&s.Pane)).Size(14, 14).TextColor(col) })
+		})
+		body := ui.Column(c).Grow(1).MinWidth(0).Justify(ui.Center).Gap(3)
+		if detailed {
+			body.Padding(5, 0, 5, 0)
+		}
+		body.Children(func() {
+			ui.Row(c).Height(20).Gap(6).AlignItems(ui.Center).Children(func() {
+				name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13).FontWeight(550).
+					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.textMuted)
+				if selected || s.Unread {
+					name.FontWeight(600).TextColor(pal.text)
 				}
+				if len(s.Panes) > 1 {
+					a.panesToggle(c, pal, s, expanded)
+				}
+				ui.Spacer(c)
 				if hovered {
-					cl := ui.ButtonBase(c.Key("close")).Size(20, 20).Radius(5).Center().TextColor(pal.textMuted).Label(locales.ActionCloseSession()).Tooltip(locales.ActionCloseSession())
+					cl := ui.ButtonBase(c.Key("close")).Size(18, 18).Radius(5).Center().TextColor(pal.textMuted).Label(locales.ActionCloseSession()).Tooltip(locales.ActionCloseSession())
 					if cl.Hovered() {
 						cl.Background(pal.rowHover).TextColor(pal.text)
 					}
-					cl.Children(func() { ui.Icon(c, closeIcon).Size(12, 12) })
+					cl.Children(func() { ui.Icon(c, closeIcon).Size(11, 11) })
 					if cl.Clicked() {
 						a.defer_(func() { a.closeSession(s.ID, true) })
 					}
+				} else if ts := sessionTimeAgo(s, now); ts != "" {
+					ui.Text(c, ts).FontSize(11).TextColor(pal.textFaint).FontFeatures("tnum").SingleLine().Shrink(0)
 				}
 			})
-		}
-		ui.Column(c).Grow(1).MinWidth(0).Padding(8, 0, 0, 0).Gap(5).Children(func() {
-			ui.Row(c).Height(20).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, sidebarProgram(&s.Pane)).FontSize(14).FontWeight(600).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-				ui.Spacer(c)
-				status()
-			})
-			ui.Row(c).Height(18).Gap(4).AlignItems(ui.Center).Children(func() {
-				name()
-				if s.Created > 0 {
-					ui.Text(c, "· "+time.UnixMilli(s.Created).Format("15:04")).FontSize(12).TextColor(pal.textMuted).SingleLine().Shrink(0)
+			ui.Row(c).Height(16).Gap(5).AlignItems(ui.Center).Children(func() {
+				if s.Status == proto.Working {
+					workingDots(c, pal, 10)
+				} else {
+					statusDot(c, pal, s, 6)
 				}
+				stCol := sessionStatusColor(pal, s)
+				if s.Status == proto.Working {
+					stCol = pal.accent
+				}
+				ui.Text(c, sessionStatusLabel(s)).FontSize(11).FontWeight(500).TextColor(stCol).SingleLine().Shrink(0)
+				ui.Text(c, "·").FontSize(11).TextColor(pal.textFaint).SingleLine().Shrink(0)
+				ui.Text(c, sidebarProgram(&s.Pane)).FontSize(11).TextColor(pal.textFaint).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 			})
 			if detailed {
 				line, msg := rowDetail(s, g, h.shortDir(s.WorkDir()))
@@ -710,7 +889,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 				if msg {
 					fg = pal.textMuted
 				}
-				ui.Text(c, line).FontSize(12).TextColor(fg).SingleLine().Ellipsis("…").MinWidth(0)
+				ui.Text(c, line).FontSize(11).TextColor(fg).SingleLine().Ellipsis("…").MinWidth(0)
 			}
 		})
 	})
@@ -719,6 +898,14 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 			a.paneRow(c, pal, s, &s.Panes[i], last)
 		}
 	}
+}
+
+func sessionTimeAgo(s *proto.Session, now time.Time) string {
+	ts := s.Activity
+	if ts == 0 {
+		ts = s.Created
+	}
+	return ago(ts, now)
 }
 
 func sidebarProgram(p *proto.Pane) string {
@@ -767,11 +954,12 @@ func (a *App) paneRow(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pa
 	sid, pid := s.ID, p.ID
 	h := a.hostOf(sid)
 	// Indent the pane beneath its session in the project tree.
-	inset := float32(88)
+	inset := float32(46)
 	row := ui.Row(c.Key(sid+"/"+pid)).Height(28).Padding(0, 10, 0, inset).Gap(8).AlignItems(ui.Center).Radius(7).Margin(0, 0, 1, 0)
 	if !last {
 		row.Draw(func(p *ui.Painter, r ui.Rect) {
-			p.Line(r.X+20, r.Y, r.X+20, r.Y+r.H+1, 1.5, pal.textFaint.Alpha(0.65))
+			x := r.X + 9
+			p.Line(x, r.Y-2, x, r.Y+r.H+2, 1.25, pal.sideTree)
 		})
 	}
 	focused := s.ID == a.selected && a.focusOf(s) == pid
@@ -839,22 +1027,133 @@ func (a *App) paneRow(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pa
 	})
 }
 
-// sessionTree connects the project to the program, then the program to
-// the session name. The project trunk stops at its last session.
-func (a *App) sessionTree(c *ui.Context, pal *palette, last bool) {
-	box := ui.Box(c.Key("tree")).Width(60).Shrink(0).AlignSelf(ui.Stretch).PassThrough()
+// treeElbowPath builds a vertical-to-horizontal rounded corner connector
+// from (x, topY) down to (x, midY-rad), curving smoothly to (endX, midY).
+func treeElbowPath(x, topY, midY, endX, rad float32) *ui.Path {
+	const arcSegs = 6
+	var path ui.Path
+	path.MoveTo(x, topY)
+	cornerY := midY - rad
+	if topY < cornerY {
+		path.LineTo(x, cornerY)
+	}
+	cx, cy := x+rad, cornerY
+	for i := 1; i <= arcSegs; i++ {
+		theta := math.Pi - (math.Pi/2)*float64(i)/arcSegs
+		px := cx + rad*float32(math.Cos(theta))
+		py := cy + rad*float32(math.Sin(theta))
+		path.LineTo(px, py)
+	}
+	path.LineTo(endX, midY)
+	return &path
+}
+
+// sessionTree connects a project's divider to its sessions with rounded
+// branches in the neutral tree color.
+func (a *App) sessionTree(c *ui.Context, pal *palette, first, last, detailed bool) {
+	box := ui.Box(c.Key("tree")).Width(22).Shrink(0).AlignSelf(ui.Stretch).PassThrough()
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
-		x, y := r.X+20, r.Y+17
-		end := r.Y + r.H
-		if last {
-			end = y
+		x := r.X + 8
+		endX := r.X + r.W - 2
+		const rad = float32(6)
+		midY := r.Y + r.H/2
+		if detailed {
+			midY = r.Y + 24
 		}
-		col := pal.textFaint.Alpha(0.65)
-		p.Line(x, r.Y, x, end, 1.5, col)
-		p.Line(x, y, r.X+55, y, 1.5, col)
-		p.Line(r.X+44, y, r.X+44, r.Y+42, 1.5, col)
-		p.Line(r.X+44, r.Y+42, r.X+80, r.Y+42, 1.5, col)
+		topY := r.Y - 2
+		if first {
+			topY = r.Y - 6
+		}
+		botY := r.Y + r.H + 1
+
+		if last {
+			p.StrokePath(treeElbowPath(x, topY, midY, endX, rad), 1.25, pal.sideTree)
+			return
+		}
+		p.Line(x, topY, x, botY, 1.25, pal.sideTree)
+		p.StrokePath(treeElbowPath(x, midY-rad, midY, endX, rad), 1.25, pal.sideTree)
 	})
+}
+
+// treeDataFlow paints animated glowing data pulses flowing down the tree
+// from the project divider into each working session.
+func (a *App) treeDataFlow(c *ui.Context, pal *palette, key string, targets []float32) {
+	flow := ui.Box(c.Key("flow-"+key)).Absolute().Left(0).Top(0).Bottom(0).Width(28).PassThrough()
+	flow.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.AnimationFrame()
+		const (
+			rad         = float32(6)
+			speed       = float32(95)
+			stride      = float32(135)
+			packetLen   = float32(48)
+			slicesCount = 7
+		)
+		x := r.X + 13
+		endX := r.X + 25
+		nowSec := float64(p.Now().UnixMilli()) / 1000.0
+		hi := pal.accent.Mix(ui.Hex("#ffffff"), 0.55)
+		for idx, midY := range targets {
+			if midY <= rad {
+				continue
+			}
+			path := treeElbowPath(x, r.Y, r.Y+midY, endX, rad)
+			totalLen := (midY - rad) + float32(math.Pi/2)*rad + (endX - (x + rad))
+			p.StrokePath(path, 1.35, pal.accent.Alpha(0.22))
+
+			offset := float32(math.Mod(nowSec*float64(speed)+float64(idx)*45, float64(stride)))
+			for head := offset; head-packetLen < totalLen; head += stride {
+				for k := range slicesCount {
+					u0 := float32(k) / slicesCount
+					u1 := float32(k+1) / slicesCount
+					s0 := head - packetLen*(1-u0)
+					s1 := head - packetLen*(1-u1)
+					if s1 <= 0 || s0 >= totalLen {
+						continue
+					}
+					t0 := max(float32(0), s0/totalLen)
+					t1 := min(float32(1), s1/totalLen)
+					if t1 <= t0+0.001 {
+						continue
+					}
+					u := (u0 + u1) / 2
+					intensity := u * u
+					seg := path.Trim(t0, t1)
+					p.StrokePath(seg, 5.2, pal.accent.Alpha(0.22*intensity))
+					p.StrokePath(seg, 2.8, pal.accent.Alpha(0.50*intensity))
+					p.StrokePath(seg, 1.6, pal.accent.Alpha(0.95*intensity))
+					if k >= slicesCount-2 {
+						p.StrokePath(seg, 1.3, hi.Alpha(0.85*intensity))
+					}
+				}
+			}
+		}
+	})
+}
+
+// workingDots draws an animated 2x2 dot grid for a working session.
+func workingDots(c *ui.Context, pal *palette, size float32) ui.Element {
+	box := ui.Box(c).Size(size, size).Shrink(0)
+	box.Label(locales.StatusWorking())
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.AnimationFrame()
+		step := int(p.Now().UnixMilli()/180) % 4
+		offs := [4][2]float32{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		sp := r.W * 0.24
+		rad := max(1.1, r.W*0.14)
+		for i, o := range offs {
+			alpha := float32(0.28)
+			if i == step {
+				alpha = 1
+			} else if (i+1)%4 == step {
+				alpha = 0.58
+			}
+			var dot ui.Path
+			dot.Circle(cx+o[0]*sp, cy+o[1]*sp, rad)
+			p.FillPath(&dot, pal.accent.Alpha(alpha))
+		}
+	})
+	return box
 }
 
 // statusDot is a session's status as a filled dot, beside the words it
@@ -967,17 +1266,11 @@ func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 	}
 }
 
-// sidebarFooter is the sidebar's foot: the buttons for projects, the
-// palette and Settings; then, at the right, what across the sessions
-// wants a look, each a button going to the next session of it, and
-// nothing while nothing does, or the connection to kerod while there is
-// none.
+// sidebarFooter is the sidebar's foot: what across the sessions wants a look
+// at the left, and the buttons for the palette, projects and Settings at the right.
 func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
-	ui.Row(c).Height(36).Shrink(0).Padding(0, 12, 4, 12).Gap(2).AlignItems(ui.Center).DragWindow().Children(func() {
-		iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
-		iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
-		iconButton(c, "settings", gearIcon, a.tip(locales.SettingsTitle(), "settings.open"), pal, func() { a.openSettings("") })
-		ui.Spacer(c)
+	ui.Box(c).AlignSelf(ui.Stretch).Height(1).Background(pal.divider)
+	ui.Row(c).Height(36).Shrink(0).Padding(0, 10, 2, 10).Gap(2).AlignItems(ui.Center).DragWindow().Children(func() {
 		switch a.local().conn {
 		case connReady:
 			if a.daemonStale() {
@@ -994,6 +1287,10 @@ func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
 		default:
 			a.footerNote(c, pal, pal.danger, locales.StatusDisconnected())
 		}
+		ui.Spacer(c)
+		iconButton(c, "palette", searchIcon, a.tip(locales.ActionGoToSession(), "palette.open"), pal, a.openPalette)
+		iconButton(c, "open-project", folderIcon, a.tip(locales.ActionOpenProject(), "project.open"), pal, a.openProject)
+		iconButton(c, "settings", gearIcon, a.tip(locales.SettingsTitle(), "settings.open"), pal, func() { a.openSettings("") })
 	})
 }
 

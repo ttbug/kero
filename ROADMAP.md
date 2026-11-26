@@ -2,6 +2,7 @@
 
 ## 当前阶段
 
+- 左侧边栏已完成卡片与树形动态数据流样式改造（含品牌弧线装饰、项目计数徽章、项目卡片及 `Files & Diff`/`Project Files` 子行、从分割线垂直引出的圆角中性树干及仅在 `Working` 会话触发的动态数据流脉冲、会话图标容器与状态/程序副标题、底部状态栏重排），专项回归、多主题渲染检查、`go tool mygo vet .` 与 `go tool mygo i18n check .` 均通过；全量测试存在既有/未修改包失败项。
 - 左侧栏参考布局及主题联动修复已完成，专项回归和渲染检查通过；全量测试存在未通过项。
 - 已处理 `main`（`2c7c487`）合入 `feat/own` 的冲突及恢复流程死锁，相关回归通过；尚未创建合并提交。
 - 已处理本轮 `main`（`4d09d61`）合入的项目改名冲突，相关回归与 race 检查通过；尚未创建本轮合并提交。
@@ -10,6 +11,10 @@
 
 ## 已完成
 
+- 左侧边栏卡片树形重构（按用户确认省略顶部 Dashboard/Matrix、暂不新增 Pin 置顶、副标题状态后显示 Agent/程序名）：
+  - 在 `theme.go` 新增 `sideCard`、`sideCardBorder`、`sideIconBg`、`sideTree` 调色板字段，并按深浅色与 Ghostty 主题动态派生。
+  - 在 `view.go` 顶部品牌区下方添加弧线光点装饰；`sidebarProjectSection` 拆分项目数字徽章与右侧会话数；`groupBody` 为项目增加独立圆角边框卡片、常驻 `+` 新建会话按钮及 `Files & Diff` / `Project Files` 入口行（`openProjectSide` 支持切换项目会话并打开右侧面板）；`sessionRow` / `sessionTree` / `treeElbowPath` / `treeDataFlow` / `workingDots` 实现从分割线引出的圆角中性树形连线，并仅在存在 `Working` 会话时沿连续路径向下绘制渐隐拖尾的动态数据脉冲；`sidebarFooter` 将状态计数移至左侧、工具按钮移至右侧。
+  - 在 `project_order.go` 调整项目拖拽插入线偏移以匹配卡片间距；在 `sidebar_test.go` 与 `view_test.go` 更新布局、主题与悬浮提示回归并新增 `TestSidebarProjectFilesRow`。
 - 补齐 `AGENTS.md`，明确目录、MyGo 生命周期和验证约定。
 - 项目标题显示项目数与会话数，折叠箭头移至左侧，项目名和分支标签使用当前主题调色板。
 - 会话显示程序名、真实会话名称与已有创建时间，并绘制两层树形连线。
@@ -42,6 +47,9 @@
 
 ## 最近验证
 
+- 2026-11-26（运行中树形动态数据流改造）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；更新 `TestSidebarFollowsTheme`（校验 7 主题品牌弧线中心强调色）并新增 `TestSidebarWorkingDataFlow`（验证空闲选中态无动画、运行态树干像素随时间流动并导出 `sidebar-dataflow-dark.png`），专项回归与右侧栏测试全部通过（`9.893s`），并检查 `sidebar-reference-dark.png`、`sidebar-reference-light.png`、`sidebar-dataflow-dark.png`、`sidebar-theme-tokyonight-moon.png`。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为上述五项既有/未修改包测试（日志：`/tmp/kero-sidebar-dataflow-full.log`）。
+- 2026-11-26（连接线圆角发光样式优化）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；扩展 `TestSidebarReferenceLayout` 覆盖单会话 L 形与多会话贯通圆角树形分支，专项回归与右侧栏测试全部通过（`9.277s`），并检查 `sidebar-reference-dark.png`、`sidebar-reference-light.png`、`sidebar-split-panes-dark.png`、`sidebar-theme-tokyonight-moon.png`。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为上述五项既有/未修改包测试（日志：`/tmp/kero-sidebar-connectors-full.log`）。
+- 2026-11-26（左侧边栏卡片树形改造）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；专项回归与右侧栏测试（`TestRightSidebar`、`TestCloseInViewer`、`TestSidebar*`、`TestFold*`、`TestNeighbor`、`TestGroupBranch`、`TestSessionStatusLabel`、`TestSessionHoverClose`、`TestSessionTooltipAtPointer`、`TestDoubleClickSidebarNewSession`、`TestDragProject*`、`TestProjectMenuMoves`、`TestReorderProjects`、`TestInsertionIndex`、`TestMoveProjectFromMenu`）全部通过（`8.031s`），并检查 `/tmp/kero-sidebar-redesign-shots/` 下深浅色、窄侧栏、分窗格及 7 种主题渲染截图。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过：失败项为 `TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`（`internal/cli`）、`TestCommandInForeground` / `TestCommandTellsExit`（`internal/daemon`）、`TestBridgeScript`（`internal/remote`），日志：`/tmp/kero-sidebar-redesign-full.log`；未完成真实桌面窗口人工目视确认（本次通过 MyGo Tester 渲染验证）。
 - 2026-11-22：`e2b5bd1` 合并的管道存活成员名称与目录、目录跟随、空项目保留、恢复、启动失败 worktree 清理和保存串行化专项通过；冲突直接相关的 race 检查通过，扩大范围发现上述恢复竞态。`go tool mygo vet .`、冲突文件 Go 格式与 Git diff 检查通过。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束，仍有 `TestRightSidebarMakesRoom`、两项 Zsh、`TestBridgeScript` 失败；日志：`/tmp/kero-merge-e2b5bd1-test.log`，专项 race 日志：`/tmp/kero-merge-e2b5bd1-race.log`。本轮手动修改限于 daemon 冲突、相关回归和本文件，未新增桌面渲染检查。
 - 2026-11-22：项目、空项目保留、恢复及启动失败 worktree 清理专项通过；项目未知 ID、空项目和恢复流程的 race 检查通过；`go tool mygo vet .`、冲突文件 Go 格式及 Git diff 检查通过。
 - 2026-11-22：`CGO_ENABLED=0 go test ./... -timeout=120s` 正常结束但未全通过：`TestRightSidebarMakesRoom`、两项 Zsh、`TestBridgeScript` 仍失败；新增 `TestDaemonStatusSaysAFailedState` 在默认临时目录下 Unix socket 绑定失败，使用 `TMPDIR=/tmp` 隔离复测通过。图片存储限制本轮未报失败。日志：`/tmp/kero-merge-20261122-test.log`。本轮只手动解决 daemon 冲突，未新增桌面视觉检查。

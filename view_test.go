@@ -448,11 +448,15 @@ func TestSessionTooltipAtPointer(t *testing.T) {
 		a.st.Sessions[0].Dir = "/Users/someone/dev/kero"
 		tt := ui.NewTester(a.view, 1100, 700)
 		tt.Frame()
-		r, ok := tt.Find("demo") // the project header, above the row
+		_, ok := tt.Find("demo") // the project header, above the row
 		if !ok {
 			t.Fatal("no project header")
 		}
-		x, y := 12+dx, r.Y+r.H/2+42 // the session row's middle
+		prog, ok := tt.Find("claude")
+		if !ok {
+			t.Fatal("no session row")
+		}
+		x, y := 20+dx, prog.Y // inside the session row
 		tt.Move(x, y)
 		tt.Advance(2 * time.Second)
 		tt.Frame()

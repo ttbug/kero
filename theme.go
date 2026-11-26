@@ -16,10 +16,14 @@ type palette struct {
 	text         ui.Color
 	textMuted    ui.Color // project headers, times
 	textFaint    ui.Color // counts, hints
-	rowHover     ui.Color
-	rowSelected  ui.Color
-	rowSelBorder ui.Color
-	rowShadow    ui.Color
+	rowHover       ui.Color
+	rowSelected    ui.Color
+	rowSelBorder   ui.Color
+	rowShadow      ui.Color
+	sideCard       ui.Color
+	sideCardBorder ui.Color
+	sideIconBg     ui.Color
+	sideTree       ui.Color
 
 	card        ui.Color // the terminal's card
 	cardBorder  ui.Color
@@ -69,10 +73,14 @@ var lightPalette = palette{
 	text:         ui.Hex("#1d1d1f"),
 	textMuted:    ui.Hex("#6e6e78"),
 	textFaint:    ui.Hex("#a3a3ad"),
-	rowHover:     ui.RGBA(0, 0, 0, 0.04),
-	rowSelected:  ui.Hex("#ffffff"),
-	rowSelBorder: ui.RGBA(0, 0, 0, 0.05),
-	rowShadow:    ui.RGBA(20, 20, 50, 0.08),
+	rowHover:       ui.RGBA(0, 0, 0, 0.04),
+	rowSelected:    ui.Hex("#ffffff"),
+	rowSelBorder:   ui.RGBA(0, 0, 0, 0.05),
+	rowShadow:      ui.RGBA(20, 20, 50, 0.08),
+	sideCard:       ui.RGBA(255, 255, 255, 0.72),
+	sideCardBorder: ui.RGBA(0, 0, 0, 0.08),
+	sideIconBg:     ui.RGBA(0, 0, 0, 0.045),
+	sideTree:       ui.RGBA(0, 0, 0, 0.16),
 
 	card:          ui.Hex("#ffffff"),
 	cardBorder:    ui.RGBA(0, 0, 0, 0.07),
@@ -111,10 +119,14 @@ var darkPalette = palette{
 	text:         ui.Hex("#ececf0"),
 	textMuted:    ui.Hex("#a9a9b4"),
 	textFaint:    ui.Hex("#83838f"),
-	rowHover:     ui.RGBA(255, 255, 255, 0.05),
-	rowSelected:  ui.RGBA(255, 255, 255, 0.10),
-	rowSelBorder: ui.RGBA(255, 255, 255, 0.06),
-	rowShadow:    ui.RGBA(0, 0, 0, 0.25),
+	rowHover:       ui.RGBA(255, 255, 255, 0.05),
+	rowSelected:    ui.RGBA(255, 255, 255, 0.10),
+	rowSelBorder:   ui.RGBA(255, 255, 255, 0.06),
+	rowShadow:      ui.RGBA(0, 0, 0, 0.25),
+	sideCard:       ui.RGBA(255, 255, 255, 0.038),
+	sideCardBorder: ui.RGBA(255, 255, 255, 0.09),
+	sideIconBg:     ui.RGBA(255, 255, 255, 0.055),
+	sideTree:       ui.RGBA(255, 255, 255, 0.15),
 
 	card:         ui.Hex("#232328"),
 	cardBorder:   ui.RGBA(255, 255, 255, 0.08),
@@ -380,9 +392,17 @@ func tinted(th *terminal.Theme, accent ui.Color) *palette {
 	p.accent = accent
 	if p.dark {
 		p.popover = bg.Mix(white, 0.04)
+		p.sideCard = bg.Mix(white, 0.035).Alpha(0.72)
+		p.sideCardBorder = fg.Alpha(0.11)
+		p.sideIconBg = fg.Alpha(0.06)
+		p.sideTree = fg.Alpha(0.18)
 	} else {
 		p.rowSelected = bg.Mix(white, 0.5)
 		p.popover = bg.Mix(white, 0.6)
+		p.sideCard = bg.Mix(white, 0.55).Alpha(0.82)
+		p.sideCardBorder = fg.Alpha(0.10)
+		p.sideIconBg = fg.Alpha(0.05)
+		p.sideTree = fg.Alpha(0.18)
 	}
 	return &p
 }

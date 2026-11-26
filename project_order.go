@@ -165,13 +165,13 @@ func (a *App) insertionLine(c *ui.Context, pal *palette, g group, gi, at int) {
 	}
 	switch {
 	case at == here:
-		// In the middle of the margin above the header.
-		top := float32(18)
+		// In the middle of the margin above the card.
+		top := float32(10)
 		if gi == 0 {
-			top = 2
+			top = 4
 		}
 		line().Top(top/2 - 1)
 	case at == len(ids) && here == len(ids)-1:
-		line().Bottom(-10)
+		line().Bottom(-6)
 	}
 }

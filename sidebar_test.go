@@ -22,15 +22,18 @@ func TestSidebarBrandAndTasks(t *testing.T) {
 	tt.Frame()
 	shot(t, tt, "sidebar")
 	texts := strings.Join(tt.Texts(), "\n")
-	for _, want := range []string{"Xview", "All In One 终端工作台", locales.SidebarProjects(1), locales.SidebarTasks(1), "Shell", locales.EndedTitle()} {
+	projLabel := strings.TrimSpace(strings.TrimSuffix(locales.SidebarProjects(1), "1"))
+	taskLabel := strings.TrimSpace(strings.TrimPrefix(locales.SidebarTasks(1), "·"))
+	for _, want := range []string{"Xview", "All In One 终端工作台", projLabel, taskLabel, "Shell", locales.EndedTitle()} {
 		if !strings.Contains(texts, want) {
 			t.Errorf("the sidebar says none of %q; texts %q", want, tt.Texts())
 		}
 	}
 }
 
-// The reference's two levels keep the real session name and creation
-// time visible. Long names stay in the sidebar at its minimum width.
+// The reference's card-and-tree layout keeps project cards, Files & Diff
+// summaries, session titles, status/program subtitles, and relative times
+// inside the sidebar even at its minimum width.
 func TestSidebarReferenceLayout(t *testing.T) {
 	i18n.SetLocaleFunc(func() string { return "zh-Hans" })
 	t.Cleanup(func() { i18n.SetLocaleFunc(nil) })
@@ -38,10 +41,12 @@ func TestSidebarReferenceLayout(t *testing.T) {
 	a.local().conn = connReady
 	a.set.SessionHistory = true
 	a.st.Projects = []proto.Project{{ID: "p1", Name: "workspace", Dir: "/tmp/workspace"}, {ID: "p2", Name: "categraf", Dir: "/tmp/categraf"}}
-	created := time.Date(2026, 11, 19, 15, 55, 0, 0, time.Local).UnixMilli()
+	created := time.Now().Add(-2 * time.Hour).UnixMilli()
 	a.st.Sessions = []proto.Session{
 		{ID: "s1", Project: "p1", Name: "新会话", Pane: proto.Pane{Shell: "zsh", Status: proto.Idle, Created: created}},
-		{ID: "s2", Project: "p2", Name: "新会话", Pane: proto.Pane{Shell: "zsh", Status: proto.Idle, Created: created, Git: &proto.GitInfo{Branch: "main", Default: "main"}}},
+		{ID: "s2", Project: "p2", Name: "配置按钮删除", Pane: proto.Pane{Shell: "zsh", Agent: "claude", Status: proto.Idle, Created: created, Git: &proto.GitInfo{Branch: "main", Default: "main", Files: 3, Added: 649, Removed: 125}}},
+		{ID: "s3", Project: "p2", Name: "多平台权限兼容", Pane: proto.Pane{Shell: "zsh", Agent: "codex", Status: proto.Idle, Created: created}},
+		{ID: "s4", Project: "p2", Name: "优化侧边栏", Pane: proto.Pane{Shell: "zsh", Agent: "claude", Status: proto.Working, Created: created}},
 	}
 	a.selected = "s2"
 	tt := ui.NewTester(a.view, 1100, 700)
@@ -50,7 +55,7 @@ func TestSidebarReferenceLayout(t *testing.T) {
 		tt.Frame()
 		tt.Advance(time.Second)
 		tt.Frame()
-		for _, want := range []string{locales.SidebarProjects(2), locales.SidebarTasks(2), "Shell", "新会话", "· 15:55", "main", locales.EndedTitle()} {
+		for _, want := range []string{"当前项目", "会话 4", "Project Files", "Files & Diff", "+649", "−125", "3", "Shell", "Claude Code", "Codex", "新会话", "配置按钮删除", "多平台权限兼容", "优化侧边栏", "运行中", "就绪", "main", locales.EndedTitle()} {
 			if !tt.HasText(want) {
 				t.Errorf("reference layout missing %q; texts %q", want, tt.Texts())
 			}
@@ -71,7 +76,7 @@ func TestSidebarReferenceLayout(t *testing.T) {
 }
 
 // Switching a theme in the same window updates the sidebar's wash and
-// selected edge along with the rest of the window, including Ghostty themes.
+// selected tree glow along with the rest of the window, including Ghostty themes.
 func TestSidebarFollowsTheme(t *testing.T) {
 	a := testApp(t)
 	a.local().conn = connReady
@@ -105,15 +110,113 @@ func TestSidebarFollowsTheme(t *testing.T) {
 			if got.RGBAAt(150, 500) != want.RGBAAt(150, 500) {
 				t.Errorf("sidebar background %v differs from theme background %v", got.RGBAAt(150, 500), want.RGBAAt(150, 500))
 			}
-			program, ok := tt.Find("Shell")
+			tag, ok := tt.Find("All In One 终端工作台")
 			if !ok {
-				t.Fatal("sidebar program missing")
+				t.Fatal("sidebar brand tagline missing")
 			}
-			if col := got.RGBAAt(4, int(program.Y+program.H/2)); col != want.RGBAAt(805, 505) {
-				t.Errorf("selected edge %v differs from theme accent %v", col, want.RGBAAt(805, 505))
+			wantAccent := want.RGBAAt(805, 505)
+			foundAccent := false
+			for y := int(tag.Y + tag.H + 4); y <= int(tag.Y+tag.H+24); y++ {
+				for x := 144; x <= 158; x++ {
+					if got.RGBAAt(x, y) == wantAccent {
+						foundAccent = true
+						break
+					}
+				}
+				if foundAccent {
+					break
+				}
+			}
+			if !foundAccent {
+				t.Errorf("brand accent %v not found below tagline", wantAccent)
 			}
 			shot(t, tt, "sidebar-theme-"+tc.name)
 		})
+	}
+}
+
+// Idle and selected sessions keep neutral tree lines without animation;
+// working sessions stream animated data pulses along the trunk into their
+// rows ($KERO_SHOTS).
+func TestSidebarWorkingDataFlow(t *testing.T) {
+	a := testApp(t)
+	a.local().conn = connReady
+	a.st.Projects = []proto.Project{{ID: "p1", Name: "one-rust", Dir: "/tmp/one-rust"}}
+	a.st.Sessions = []proto.Session{
+		{ID: "s1", Project: "p1", Name: "配置按钮删除", Pane: proto.Pane{Shell: "zsh", Agent: "claude", Status: proto.Idle}},
+		{ID: "s2", Project: "p1", Name: "全局性能优化", Pane: proto.Pane{Shell: "zsh", Agent: "claude", Status: proto.Idle}},
+		{ID: "s3", Project: "p1", Name: "跨 Agent 交接", Pane: proto.Pane{Shell: "zsh", Agent: "codex", Status: proto.Idle}},
+	}
+	a.selected = "s1"
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.SetDark(true)
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+
+	firstRow, ok1 := tt.Find("配置按钮删除")
+	lastRow, ok2 := tt.Find("跨 Agent 交接")
+	if !ok1 || !ok2 {
+		t.Fatalf("missing session rows; texts %q", tt.Texts())
+	}
+	yStart, yEnd := int(firstRow.Y), int(lastRow.Y+lastRow.H)
+	img1 := tt.Image()
+	tt.Advance(250 * time.Millisecond)
+	tt.Frame()
+	img2 := tt.Image()
+	for y := yStart; y <= yEnd; y++ {
+		if img1.RGBAAt(20, y) != img2.RGBAAt(20, y) {
+			t.Fatalf("idle selected tree trunk changed at y=%d (%v -> %v)", y, img1.RGBAAt(20, y), img2.RGBAAt(20, y))
+		}
+	}
+
+	// Turn the second session into Working: the trunk pixels must animate.
+	a.st.Sessions[1].Status = proto.Working
+	tt.Frame()
+	imgA := tt.Image()
+	tt.Advance(250 * time.Millisecond)
+	tt.Frame()
+	imgB := tt.Image()
+	changed := 0
+	for y := yStart; y <= yEnd; y++ {
+		if imgA.RGBAAt(20, y) != imgB.RGBAAt(20, y) {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Fatal("working session tree trunk did not animate over 250ms")
+	}
+	shot(t, tt, "sidebar-dataflow-dark")
+}
+
+// Clicking a project card's Files & Diff or Files row opens the corresponding
+// right sidebar tab, switching to that project's session when needed; folding
+// the project hides the row.
+func TestSidebarProjectFilesRow(t *testing.T) {
+	a := testApp(t)
+	a.local().conn = connReady
+	a.st.Projects = []proto.Project{
+		{ID: "p1", Name: "alpha", Dir: "/tmp/alpha"},
+		{ID: "p2", Name: "beta", Dir: "/tmp/beta"},
+	}
+	a.st.Sessions = []proto.Session{
+		{ID: "s1", Project: "p1", Name: "one", Pane: proto.Pane{ID: "a", Shell: "zsh", Status: proto.Idle, Progress: -1}},
+		{ID: "s2", Project: "p2", Name: "two", Pane: proto.Pane{ID: "b", Shell: "zsh", Status: proto.Idle, Progress: -1, Git: &proto.GitInfo{Root: "/tmp/beta", Branch: "main", Default: "main", Files: 2, Added: 10, Removed: 3}}},
+	}
+	a.selected = "s1"
+	tt := ui.NewTester(a.view, 1100, 700)
+	tt.Frame()
+	if err := tt.Click("Files & Diff"); err != nil {
+		t.Fatalf("could not click Files & Diff: %v", err)
+	}
+	tt.Frame()
+	if a.selected != "s2" || a.prefs.Side != sideChanges {
+		t.Fatalf("after clicking Files & Diff on p2: selected=%q side=%q, want s2 / changes", a.selected, a.prefs.Side)
+	}
+	a.toggleProject("p2")
+	tt.Frame()
+	if tt.HasText("Files & Diff") || tt.HasText("two") {
+		t.Errorf("folding p2 left Files & Diff or session visible: %q", tt.Texts())
 	}
 }
 
