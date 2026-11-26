@@ -352,3 +352,128 @@ func TestDetectAgentAntigravity(t *testing.T) {
 		}
 	}
 }
+
+func TestPaneAgentTitleTracking(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir := filepath.Join(cfg, "projects", "-src-app")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(dir, "13b997c3.jsonl")
+
+	s := testPane(t)
+	s.mu.Lock()
+	s.info.Process, s.info.Agent = "claude", "claude"
+	s.info.Status = proto.Waiting
+	s.mu.Unlock()
+
+	// Approval input while Waiting must not become AgentTitle.
+	s.input([]byte("allow once\r"))
+	s.mu.Lock()
+	if s.info.AgentTitle != "" {
+		t.Fatalf("waiting input leaked into AgentTitle: %q", s.info.AgentTitle)
+	}
+	s.mu.Unlock()
+
+	// First real prompt while Idle/Working sets AgentTitle.
+	s.input([]byte("修复侧边栏会话标题展示\r"))
+	s.mu.Lock()
+	if s.info.AgentTitle != "修复侧边栏会话标题展示" || s.agentTitleKind != agentTitlePrompt {
+		t.Fatalf("first prompt AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+
+	// Subsequent prompts do not overwrite the first prompt title.
+	s.input([]byte("second follow-up prompt\r"))
+	s.mu.Lock()
+	if s.info.AgentTitle != "修复侧边栏会话标题展示" {
+		t.Fatalf("follow-up overwrote AgentTitle: %q", s.info.AgentTitle)
+	}
+	s.mu.Unlock()
+
+	// /clear resets the prompt-derived title, allowing a new first prompt.
+	s.input([]byte("/clear\r"))
+	s.mu.Lock()
+	if s.info.AgentTitle != "" || s.agentTitleKind != agentTitleNone {
+		t.Fatalf("/clear did not reset AgentTitle: (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+
+	s.input([]byte("新的对话主题\r"))
+	s.mu.Lock()
+	if s.info.AgentTitle != "新的对话主题" {
+		t.Fatalf("after /clear new prompt = %q", s.info.AgentTitle)
+	}
+	s.info.AgentSession = &proto.AgentSession{Agent: "claude", ID: "13b997c3"}
+	s.mu.Unlock()
+
+	// Claude transcript title overrides the prompt-derived title.
+	if err := os.WriteFile(transcript, []byte(`{"type":"ai-title","aiTitle":"Refine sidebar title","sessionId":"13b997c3"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !s.syncClaudeTitle("13b997c3") {
+		t.Fatal("syncClaudeTitle reported no change")
+	}
+	s.mu.Lock()
+	if s.info.AgentTitle != "Refine sidebar title" || s.agentTitleKind != agentTitleTranscript {
+		t.Fatalf("transcript AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	// Reset clears AgentTitle when agent ends.
+	if !s.resetAgentTitleLocked() || s.info.AgentTitle != "" || s.agentTitleKind != agentTitleNone {
+		t.Fatalf("resetAgentTitleLocked failed: (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+}
+
+func TestTickClearsStaleRestoredAgentTitle(t *testing.T) {
+	// Case 1: Restored command ended and fell back to shell before any tick saw proc != "".
+	s := testPane(t)
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not installed")
+	}
+	proc, err := startPTY(ptyOptions{
+		Path: shell, Args: []string{"sh", "-c", "sleep 30"},
+		Dir: t.TempDir(), Env: []string{"TERM=xterm-256color"},
+		Cols: s.info.Cols, Rows: s.info.Rows,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { proc.Kill() })
+	s.mu.Lock()
+	s.proc = proc
+	s.shellPID = proc.PID()
+	s.info.AgentTitle = "restored task"
+	s.agentTitleKind = agentTitlePrompt
+	s.info.AgentSession = &proto.AgentSession{Agent: "claude", ID: "13b997c3"}
+	s.awaiting = false
+	s.ended = true
+	s.mu.Unlock()
+	if changed := s.tick(time.Now()); !changed {
+		t.Fatal("tick did not report change when clearing ended restored title")
+	}
+	s.mu.Lock()
+	if s.info.AgentTitle != "" || s.agentTitleKind != agentTitleNone {
+		t.Fatalf("ended restored pane kept AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+
+	// Case 2: No AgentSession or mismatched AgentSession when an agent starts on a shell with stale title.
+	s2 := testPane(t)
+	s2.mu.Lock()
+	s2.info.AgentTitle = "stale claude title"
+	s2.agentTitleKind = agentTitlePrompt
+	s2.info.AgentSession = &proto.AgentSession{Agent: "claude", ID: "13b997c3"}
+	// Simulate tick transition where agent="antigravity" is detected while s2.info.Agent=="":
+	// Here s2.proc is nil, so test the helper logic directly via resetAgentTitleLocked guard condition.
+	agent := "antigravity"
+	if agent != "" && agent != s2.info.Agent && s2.info.AgentTitle != "" && (s2.info.AgentSession == nil || s2.info.AgentSession.Agent != agent) {
+		s2.resetAgentTitleLocked()
+	}
+	if s2.info.AgentTitle != "" || s2.agentTitleKind != agentTitleNone {
+		t.Fatalf("mismatched agent kept stale AgentTitle = (%q, %d)", s2.info.AgentTitle, s2.agentTitleKind)
+	}
+	s2.mu.Unlock()
+}

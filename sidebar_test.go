@@ -323,6 +323,95 @@ func TestSidebarAntigravity(t *testing.T) {
 	}
 }
 
+func TestSidebarSessionTitle(t *testing.T) {
+	i18n.SetLocaleFunc(func() string { return "zh-Hans" })
+	t.Cleanup(func() { i18n.SetLocaleFunc(nil) })
+
+	a := testApp(t)
+	a.local().conn = connReady
+	created := time.Now().Add(-2 * time.Hour).UnixMilli()
+	a.st.Projects = []proto.Project{
+		{ID: "p1", Name: "one-rust", Dir: "/tmp/one-rust"},
+		{ID: "p2", Name: "project", Dir: "/tmp/project"},
+	}
+	a.st.Sessions = []proto.Session{
+		{ID: "s1", Project: "p1", Pane: proto.Pane{ID: "a", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "✳ 配置按钮删除", Status: proto.Idle, Created: created}},
+		{ID: "s2", Project: "p1", Pane: proto.Pane{ID: "b", Shell: "zsh", Process: "claude", Agent: "claude", Title: "✳ Claude Code", AgentTitle: "那你帮我出一版新的视觉，并帮我做个侧边栏", Status: proto.Working, Created: created}},
+		{ID: "s3", Project: "p1", Pane: proto.Pane{ID: "c", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "Antigravity", Status: proto.Idle, Created: created}},
+		{ID: "s4", Project: "p1", Pane: proto.Pane{ID: "d", Shell: "zsh", Process: "vim", Title: "main.go", Status: proto.Idle, Created: created}},
+		{ID: "s5", Project: "p1", Name: "手动命名会话", Pane: proto.Pane{ID: "e", Shell: "zsh", Process: "claude", Agent: "claude", Title: "✳ Other", Status: proto.Idle, Created: created}},
+		{ID: "s6", Project: "p2", Pane: proto.Pane{ID: "f", Shell: "zsh", Dir: "/tmp/project", Status: proto.Idle, Created: created}},
+	}
+	a.selected = "s1"
+
+	tt := ui.NewTester(a.view, 1100, 700)
+	for _, dark := range []bool{true, false} {
+		tt.SetDark(dark)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		for _, want := range []string{
+			"配置按钮删除",
+			"那你帮我出一版新的视觉，并帮我做个侧边栏",
+			"新会话",
+			"main.go",
+			"手动命名会话",
+			"Antigravity",
+			"Claude Code",
+			"Shell",
+		} {
+			if !tt.HasText(want) {
+				t.Errorf("dark=%t missing %q; texts %q", dark, want, tt.Texts())
+			}
+		}
+		if tt.HasText("✳ Claude Code") || tt.HasText("one-rust ·") {
+			t.Errorf("dark=%t showed generic agent title or wrong fallback: %q", dark, tt.Texts())
+		}
+		name := "sidebar-titles-light"
+		if dark {
+			name = "sidebar-titles-dark"
+		}
+		shot(t, tt, name)
+	}
+
+	// Switching locale to English updates empty/generic session titles to "New Session".
+	i18n.SetLocaleFunc(func() string { return "en" })
+	tt.Frame()
+	if !tt.HasText("New Session") {
+		t.Errorf("english locale missing New Session; texts %q", tt.Texts())
+	}
+	i18n.SetLocaleFunc(func() string { return "zh-Hans" })
+	tt.Frame()
+
+	// Double-clicking an untitled session and committing unchanged does not persist "新会话",
+	// even if a new conversation title arrives while the rename input is open.
+	a.startRename("s6")
+	if a.renameBuf != "新会话" {
+		t.Fatalf("renameBuf = %q, want 新会话", a.renameBuf)
+	}
+	a.session("s6").Pane.Agent = "claude"
+	a.session("s6").Pane.AgentTitle = "异步到达的标题"
+	a.commitRename()
+	if a.session("s6").Name != "" {
+		t.Fatalf("commitRename persisted placeholder name %q", a.session("s6").Name)
+	}
+
+	// Explicit NameFolder setting still displays the folder name.
+	a.set.SessionName = proto.NameFolder
+	tt.Frame()
+	if !tt.HasText("project") {
+		t.Errorf("NameFolder missing folder name; texts %q", tt.Texts())
+	}
+	a.set.SessionName = proto.NameFocused
+
+	// Narrow sidebar keeps long session titles inside bounds.
+	a.prefs.SidebarWidth = minSidebar
+	tt.Frame()
+	if r, ok := tt.Find("那你帮我出一版新的视觉，并帮我做个侧边栏"); !ok || r.X+r.W > minSidebar {
+		t.Fatalf("long title escaped narrow sidebar: %v, found %t", r, ok)
+	}
+}
+
 // A project folds all its sessions away, the one shown included, which
 // stays shown in the window.
 func TestFoldHidesSelected(t *testing.T) {

@@ -1264,6 +1264,16 @@ func (msgs Messages) SidebarNoSessions() string {
 	return Catalog.Format(msgs.locale, "sidebarNoSessions", nil)
 }
 
+// SidebarNewSession says "New Session"
+// in the language the app shows.
+func SidebarNewSession() string { return In(i18n.Locale()).SidebarNewSession() }
+
+// SidebarNewSession says "New Session"
+// in the language of msgs.
+func (msgs Messages) SidebarNewSession() string {
+	return Catalog.Format(msgs.locale, "sidebarNewSession", nil)
+}
+
 // SidebarCollapse says "Collapse"
 // in the language the app shows.
 func SidebarCollapse() string { return In(i18n.Locale()).SidebarCollapse() }

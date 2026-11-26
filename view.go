@@ -847,8 +847,8 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 		}
 		body.Children(func() {
 			ui.Row(c).Height(20).Gap(6).AlignItems(ui.Center).Children(func() {
-				name := ui.Text(c, s.DisplayName(a.set.SessionName)).FontSize(13).FontWeight(550).
-					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.textMuted)
+				name := ui.Text(c, a.sessionTitle(s)).FontSize(13).FontWeight(550).
+					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.text.Alpha(0.92))
 				if selected || s.Unread {
 					name.FontWeight(600).TextColor(pal.text)
 				}
@@ -898,6 +898,10 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 			a.paneRow(c, pal, s, &s.Panes[i], last)
 		}
 	}
+}
+
+func (a *App) sessionTitle(s *proto.Session) string {
+	return s.SidebarTitle(a.set.SessionName, locales.SidebarNewSession())
 }
 
 func sessionTimeAgo(s *proto.Session, now time.Time) string {
@@ -1372,7 +1376,7 @@ func (a *App) footerSessionTip(list []*proto.Session, summary, hint string) stri
 	for i := range limit {
 		s := list[i]
 		b.WriteByte('\n')
-		b.WriteString(s.DisplayName(a.set.SessionName))
+		b.WriteString(a.sessionTitle(s))
 		b.WriteString(" · ")
 		b.WriteString(sidebarProgram(&s.Pane))
 		if s.Message != "" {
@@ -1409,7 +1413,7 @@ func (a *App) sidebarAttentionCard(c *ui.Context, pal *palette, waiting []*proto
 			s := waiting[i]
 			id := s.ID
 			prog := sidebarProgram(&s.Pane)
-			name := s.DisplayName(a.set.SessionName)
+			name := a.sessionTitle(s)
 			tip := name + " · " + prog
 			if s.Message != "" {
 				tip += "\n" + strings.Join(strings.Fields(s.Message), " ")

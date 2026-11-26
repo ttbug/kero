@@ -18,6 +18,12 @@ import (
 	"kero/internal/settings"
 )
 
+const (
+	agentTitleNone uint8 = iota
+	agentTitlePrompt
+	agentTitleTranscript
+)
+
 // idleHold: an agent's screen that stops showing work, without showing
 // its prompt either, is idle once it has stayed so this long: a turn's
 // spinner line can go between two redraws.
@@ -80,6 +86,10 @@ type pane struct {
 	changed chan struct{} // closed and replaced on every status change
 	// framing tells that frames for the clients are due, after output.
 	framing bool
+
+	prompt         promptTitleTracker
+	agentTitleKind uint8
+	titleCheckedAt time.Time
 }
 
 // headless connects the daemon's emulator to the program: it reads
@@ -320,8 +330,8 @@ func (s *pane) wake() {
 // work that went quiet.
 func (s *pane) tick(now time.Time) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed || s.proc == nil || s.info.Status == proto.Exited {
+		s.mu.Unlock()
 		return false
 	}
 	changed := false
@@ -359,12 +369,26 @@ func (s *pane) tick(now time.Time) bool {
 			s.info.AgentSession = nil
 			s.d.save()
 		}
+		if s.resetAgentTitleLocked() {
+			changed = true
+		}
+	} else if proc == "" && s.info.AgentTitle != "" && !s.awaiting && (s.ended || s.info.CommandExit != nil) {
+		if s.resetAgentTitleLocked() {
+			changed = true
+		}
 	}
 	if proc != s.info.Process || agent != s.info.Agent || runtime != s.info.Runtime {
 		if s.info.Agent != "" && agent != s.info.Agent {
 			// Another agent starts from no progress; the first keeps what
 			// it showed before it was told.
 			s.progress = ""
+			if s.resetAgentTitleLocked() {
+				changed = true
+			}
+		} else if agent != "" && agent != s.info.Agent && s.info.AgentTitle != "" && (s.info.AgentSession == nil || s.info.AgentSession.Agent != agent) {
+			if s.resetAgentTitleLocked() {
+				changed = true
+			}
 		}
 		s.info.Process, s.info.Agent, s.info.Runtime = proc, agent, runtime
 		s.seen, s.looked = "", false
@@ -395,7 +419,49 @@ func (s *pane) tick(now time.Time) bool {
 	if s.look(now) {
 		changed = true
 	}
+	claudeID := ""
+	if s.info.AgentSession != nil && s.info.AgentSession.Agent == "claude" &&
+		(s.titleCheckedAt.IsZero() || now.Sub(s.titleCheckedAt) >= 2*time.Second) {
+		claudeID = s.info.AgentSession.ID
+		s.titleCheckedAt = now
+	}
+	s.mu.Unlock()
+	if claudeID != "" && s.syncClaudeTitle(claudeID) {
+		changed = true
+	}
 	return changed
+}
+
+func (s *pane) resetAgentTitleLocked() bool {
+	s.prompt.reset()
+	s.titleCheckedAt = time.Time{}
+	if s.info.AgentTitle == "" && s.agentTitleKind == agentTitleNone {
+		return false
+	}
+	s.info.AgentTitle = ""
+	s.agentTitleKind = agentTitleNone
+	return true
+}
+
+func (s *pane) syncClaudeTitle(id string) bool {
+	if s.d == nil {
+		return false
+	}
+	title := s.d.convs.claudeTitle(id)
+	if title == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.info.AgentSession == nil || s.info.AgentSession.Agent != "claude" || s.info.AgentSession.ID != id {
+		return false
+	}
+	if s.info.AgentTitle == title && s.agentTitleKind == agentTitleTranscript {
+		return false
+	}
+	s.info.AgentTitle = title
+	s.agentTitleKind = agentTitleTranscript
+	return true
 }
 
 // look sets the status from what the screen shows, when it may have
@@ -470,6 +536,25 @@ func (s *pane) input(p []byte) {
 	s.mu.Lock()
 	proc := s.proc
 	changed := false
+	wasWaiting := s.info.Status == proto.Waiting
+	if wasWaiting {
+		s.prompt.reset()
+	} else if s.info.Agent != "" && len(p) > 0 {
+		switch ev, title := s.prompt.feed(p); ev {
+		case promptReset:
+			if s.agentTitleKind == agentTitlePrompt && s.info.AgentTitle != "" {
+				s.info.AgentTitle = ""
+				s.agentTitleKind = agentTitleNone
+				changed = true
+			}
+		case promptTitle:
+			if s.info.AgentTitle == "" && title != "" {
+				s.info.AgentTitle = title
+				s.agentTitleKind = agentTitlePrompt
+				changed = true
+			}
+		}
+	}
 	if len(s.records) > 0 {
 		s.dismissFinished()
 	}

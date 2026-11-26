@@ -134,6 +134,7 @@
   "sidebarHide": "サイドバーを隠す",
   "sidebarShow": "サイドバーを表示",
   "sidebarNoSessions": "セッションなし",
+  "sidebarNewSession": "新しいセッション",
   "sidebarCollapse": "折りたたむ",
   "sidebarExpand": "展開",
   "sidebarCloseProjectMenu": "プロジェクトを閉じる…",

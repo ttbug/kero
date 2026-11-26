@@ -48,11 +48,13 @@ type savedPane struct {
 	Title string `json:"title,omitempty"`
 	// Agent is the agent's session that ran in it, to resume, and Turn
 	// where its last turn started.
-	Agent   *proto.AgentSession `json:"agent,omitempty"`
-	Turn    *proto.Turn         `json:"turn,omitempty"`
-	Created int64               `json:"created"`
-	Cols    int                 `json:"cols"`
-	Rows    int                 `json:"rows"`
+	Agent          *proto.AgentSession `json:"agent,omitempty"`
+	AgentTitle     string              `json:"agentTitle,omitempty"`
+	AgentTitleKind uint8               `json:"agentTitleKind,omitempty"`
+	Turn           *proto.Turn         `json:"turn,omitempty"`
+	Created        int64               `json:"created"`
+	Cols           int                 `json:"cols"`
+	Rows           int                 `json:"rows"`
 }
 
 func (d *Daemon) statePath() string { return filepath.Join(d.dir, "state.json") }
@@ -93,6 +95,10 @@ func (d *Daemon) saveState() {
 			p.mu.Lock()
 			sp := savedPane{ID: p.info.ID, Dir: p.info.Dir, Command: p.info.Command, URL: p.info.URL,
 				Agent: p.info.AgentSession, Turn: p.info.Turn, Created: p.info.Created, Cols: p.info.Cols, Rows: p.info.Rows}
+			if p.info.Agent != "" || p.info.AgentSession != nil {
+				sp.AgentTitle = p.info.AgentTitle
+				sp.AgentTitleKind = p.agentTitleKind
+			}
 			if p.info.Browser() {
 				sp.Title = p.info.Title
 			}
@@ -248,14 +254,24 @@ func (d *Daemon) restorePane(sid string, sp savedPane, when string, resumeAgents
 		sp.Agent = nil
 		reason = "agent resumption disabled"
 	}
+	var agentTitle string
+	var agentTitleKind uint8
+	if sp.Agent != nil && resumeAgents && len(command) > 0 && sp.AgentTitle != "" {
+		agentTitle = sp.AgentTitle
+		agentTitleKind = sp.AgentTitleKind
+		if agentTitleKind == agentTitleNone {
+			agentTitleKind = agentTitlePrompt
+		}
+	}
 	p, err := newPane(d, sid, proto.Pane{
 		ID: sp.ID, Dir: sp.Dir, Command: sp.Command, Status: proto.Idle, Since: now,
-		Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, Restored: true, AgentSession: sp.Agent, Turn: sp.Turn,
+		Created: sp.Created, Cols: sp.Cols, Rows: sp.Rows, Restored: true, AgentSession: sp.Agent, AgentTitle: agentTitle, Turn: sp.Turn,
 	})
 	if err != nil {
 		d.log.Printf("restoring %s: %v", sp.ID, err)
 		return nil
 	}
+	p.agentTitleKind = agentTitleKind
 	// What the session showed, down to where its cursor was, with the
 	// new shell under it: what a program drew below the cursor, as an
 	// agent's status bar, goes, rather than show under the new shell's

@@ -70,6 +70,76 @@ func TestDisplayNameFollowsFocus(t *testing.T) {
 	}
 }
 
+func TestIsGenericAgentTitle(t *testing.T) {
+	for _, tc := range []struct {
+		title, agent string
+		want         bool
+	}{
+		{"✳ Claude Code", "claude", true},
+		{"claude", "claude", true},
+		{"Antigravity", "antigravity", true},
+		{"agy", "antigravity", true},
+		{"Codex", "codex", true},
+		{"OpenAI Codex", "codex", true},
+		{"Fix login", "claude", false},
+		{"配置按钮删除", "antigravity", false},
+		{"Antigravity", "", false},
+	} {
+		if got := IsGenericAgentTitle(tc.title, tc.agent); got != tc.want {
+			t.Errorf("IsGenericAgentTitle(%q, %q) = %v, want %v", tc.title, tc.agent, got, tc.want)
+		}
+	}
+}
+
+func TestSidebarTitle(t *testing.T) {
+	shell := Session{ID: "s1", Pane: Pane{ID: "p1", Shell: "zsh", Dir: "/src/one-rust"}}
+	if got := shell.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
+		t.Fatalf("empty shell title = %q, want 新会话", got)
+	}
+	if got := shell.SidebarTitle(NameFolder, "新会话"); got != "one-rust" {
+		t.Fatalf("NameFolder title = %q, want one-rust", got)
+	}
+
+	generic := Session{
+		ID:   "s2",
+		Pane: Pane{ID: "p2", Process: "antigravity", Agent: "antigravity", Title: "Antigravity", Dir: "/src/one-rust"},
+	}
+	if got := generic.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
+		t.Fatalf("generic agent title = %q, want 新会话", got)
+	}
+
+	prompted := Session{
+		ID:   "s3",
+		Pane: Pane{ID: "p3", Agent: "antigravity", Title: "Antigravity", AgentTitle: "那你帮我出一版新的视觉", Dir: "/src/one-rust"},
+	}
+	if got := prompted.SidebarTitle(NameFocused, "新会话"); got != "那你帮我出一版新的视觉" {
+		t.Fatalf("agentTitle = %q, want 那你帮我出一版新的视觉", got)
+	}
+	if got := prompted.DisplayName(NameFocused); got != "那你帮我出一版新的视觉" {
+		t.Fatalf("DisplayName with agentTitle = %q, want 那你帮我出一版新的视觉", got)
+	}
+
+	prompted.Pane.Title = "✳ 配置按钮删除"
+	if got := prompted.SidebarTitle(NameFocused, "新会话"); got != "配置按钮删除" {
+		t.Fatalf("OSC title over AgentTitle = %q, want 配置按钮删除", got)
+	}
+
+	prompted.Name = "自定义名称"
+	if got := prompted.SidebarTitle(NameFocused, "新会话"); got != "自定义名称" {
+		t.Fatalf("explicit Name = %q, want 自定义名称", got)
+	}
+
+	vim := Session{ID: "s4", Pane: Pane{ID: "p4", Process: "vim", Title: "main.go", Dir: "/src/one-rust"}}
+	if got := vim.SidebarTitle(NameFocused, "新会话"); got != "main.go" {
+		t.Fatalf("vim title = %q, want main.go", got)
+	}
+
+	browser := Session{ID: "s5", Pane: Pane{ID: "p5", URL: "https://example.com/docs", Title: "Docs"}}
+	if got := browser.SidebarTitle(NameFocused, "新会话"); got != "Docs" {
+		t.Fatalf("browser title = %q, want Docs", got)
+	}
+}
+
 func TestLayoutMoveSwap(t *testing.T) {
 	var l *Layout
 	l = l.Split("a", "b", "right", 0).Split("b", "c", "down", 0) // a | (b / c)

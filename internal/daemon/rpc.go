@@ -384,6 +384,9 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 			return nil, fmt.Errorf("no pane runs %s session %q", p.Agent, p.Session)
 		}
 		pn.mu.Lock()
+		if pn.info.AgentSession == nil || *pn.info.AgentSession != *as {
+			pn.resetAgentTitleLocked()
+		}
 		pn.info.AgentSession = as
 		id := pn.info.ID
 		pn.mu.Unlock()

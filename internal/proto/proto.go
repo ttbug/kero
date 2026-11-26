@@ -162,6 +162,10 @@ type Project struct {
 type Pane struct {
 	ID    string `json:"id"`
 	Title string `json:"title,omitempty"` // set by the program (OSC 0/2), or the page
+	// AgentTitle is a conversation title the daemon inferred for a coding agent:
+	// from its transcript or the first prompt sent to it, while the terminal
+	// title itself carries none.
+	AgentTitle string `json:"agentTitle,omitempty"`
 	// URL is the page a browser pane shows, as the app last told: set,
 	// the pane runs no shell.
 	URL     string   `json:"url,omitempty"`
@@ -410,7 +414,7 @@ func (p *Pane) PaneName() string {
 		return URLHost(p.URL)
 	}
 	if p.Process != "" {
-		if t := CleanTitle(p.Title); t != "" && !looksLikePath(t) {
+		if t := CleanTitle(p.Title); t != "" && !LooksLikePath(t) {
 			return t
 		}
 		return p.Process
@@ -449,6 +453,55 @@ const (
 	NameFolder  = "folder" // the first pane's directory, whatever runs
 )
 
+var genericAgentTitles = map[string][]string{
+	"antigravity":  {"agy", "antigravity-cli", "antigravity cli"},
+	"claude":       {"claude", "claude code"},
+	"codex":        {"codex", "openai codex"},
+	"gemini":       {"gemini", "gemini cli"},
+	"opencode":     {"opencode", "open code"},
+	"cursor-agent": {"cursor", "cursor agent"},
+	"copilot":      {"copilot", "github copilot"},
+	"codebuddy":    {"codebuddy", "codebuddy code"},
+	"kimi":         {"kimi", "kimi cli"},
+	"qwen":         {"qwen", "qwen code"},
+}
+
+// IsGenericAgentTitle reports whether title only names the coding agent itself
+// (such as "Claude Code" or "Antigravity"), rather than a conversation title.
+func IsGenericAgentTitle(title, agent string) bool {
+	t := strings.TrimSpace(CleanTitle(title))
+	if t == "" || agent == "" {
+		return false
+	}
+	if strings.EqualFold(t, agent) {
+		return true
+	}
+	if name := AgentNames[agent]; name != "" && strings.EqualFold(t, name) {
+		return true
+	}
+	for _, alias := range genericAgentTitles[agent] {
+		if strings.EqualFold(t, alias) {
+			return true
+		}
+	}
+	return false
+}
+
+// ConversationTitle returns the meaningful title of a running program or coding
+// agent in the pane, filtering out filesystem paths and generic agent names.
+func (p *Pane) ConversationTitle() string {
+	if p == nil || (p.Process == "" && p.Agent == "") {
+		return ""
+	}
+	if t := CleanTitle(p.Title); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
+		return t
+	}
+	if t := CleanTitle(p.AgentTitle); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
+		return t
+	}
+	return ""
+}
+
 // DisplayName is the name to show for a session: the user's or an agent's,
 // else the title a program in the foreground set, else its directory's
 // name; from, one of the Name constants, picks the pane it comes from.
@@ -465,15 +518,15 @@ func (s *Session) DisplayName(from string) string {
 		p = &Pane{Dir: p.Dir}
 	case NameLead:
 	default:
-		if f := s.FocusPane(); f != nil && f.Process != "" {
+		if f := s.FocusPane(); f != nil && (f.Process != "" || f.Agent != "") {
 			p = f
 		}
 	}
-	if p.Process != "" {
-		if t := CleanTitle(p.Title); t != "" && !looksLikePath(t) {
+	if p.Process != "" || p.Agent != "" {
+		if t := p.ConversationTitle(); t != "" {
 			return t
 		}
-		if p.Agent != "" {
+		if p.Process != "" && p.Agent != "" {
 			return p.Agent
 		}
 	}
@@ -489,6 +542,35 @@ func (s *Session) DisplayName(from string) string {
 		return DirName(p.Dir)
 	}
 	return "shell"
+}
+
+// SidebarTitle returns the session's first-line title in the sidebar: an
+// explicit session name, else a meaningful conversation or program title, else
+// emptyTitle (such as "New Session") when no conversation title exists yet.
+// When from is NameFolder, the directory name is kept as requested.
+func (s *Session) SidebarTitle(from, emptyTitle string) string {
+	if s.Name != "" {
+		return s.Name
+	}
+	if from == NameFolder {
+		return s.DisplayName(from)
+	}
+	p := &s.Pane
+	if from != NameLead {
+		if f := s.FocusPane(); f != nil && (f.Process != "" || f.Agent != "") {
+			p = f
+		}
+	}
+	if t := p.ConversationTitle(); t != "" {
+		return t
+	}
+	if p.Browser() && !s.hasTerminal() {
+		return p.PaneName()
+	}
+	if emptyTitle != "" {
+		return emptyTitle
+	}
+	return s.DisplayName(from)
 }
 
 func (s *Session) hasTerminal() bool {
@@ -558,7 +640,9 @@ func DirName(dir string) string {
 	return dir
 }
 
-func looksLikePath(t string) bool {
+// LooksLikePath reports whether a terminal title looks like a filesystem path,
+// remote user@host path, or Windows console executable title.
+func LooksLikePath(t string) bool {
 	return strings.HasPrefix(t, "/") || strings.HasPrefix(t, "~") || strings.Contains(t, "@") && strings.Contains(t, ":") ||
 		windowsPath(t) || consoleTitle(t)
 }

@@ -139,6 +139,7 @@ type App struct {
 	renaming        string
 	renamingProject string
 	renameBuf       string
+	renameInit      string
 	projMove        projectMove // the project dragged in the sidebar
 
 	renameFrames int
@@ -1550,14 +1551,15 @@ func (a *App) startRename(id string) {
 	if s == nil {
 		return
 	}
-	a.renaming, a.renamingProject, a.renameBuf, a.renameFrames = id, "", s.DisplayName(a.set.SessionName), 0
+	init := a.sessionTitle(s)
+	a.renaming, a.renamingProject, a.renameBuf, a.renameInit, a.renameFrames = id, "", init, init, 0
 }
 
 func (a *App) commitRename() {
-	id, name := a.renaming, strings.TrimSpace(a.renameBuf)
-	a.renaming = ""
+	id, name, init := a.renaming, strings.TrimSpace(a.renameBuf), strings.TrimSpace(a.renameInit)
+	a.renaming, a.renameInit = "", ""
 	s := a.session(id)
-	if s == nil || name == s.DisplayName(a.set.SessionName) {
+	if s == nil || name == init {
 		a.focusTerminal()
 		return
 	}

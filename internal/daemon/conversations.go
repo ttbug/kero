@@ -216,16 +216,12 @@ func paneConversation(p *pane, project, name string) *proto.Conversation {
 		return nil
 	}
 	c := &proto.Conversation{Agent: as.Agent, ID: as.ID, Dir: p.info.WorkDir(), Project: project, Name: name}
-	if t := proto.CleanTitle(p.info.Title); t != "" && !genericTitle(t, as.Agent) {
+	if t := proto.CleanTitle(p.info.Title); t != "" && !proto.IsGenericAgentTitle(t, as.Agent) {
+		c.Title = t
+	} else if t := proto.CleanTitle(p.info.AgentTitle); t != "" && !proto.IsGenericAgentTitle(t, as.Agent) {
 		c.Title = t
 	}
 	return c
-}
-
-// genericTitle tells a title that says only which agent runs, as Claude
-// Code's before its conversation has one.
-func genericTitle(t, agent string) bool {
-	return strings.EqualFold(t, agent) || strings.EqualFold(t, proto.AgentNames[agent])
 }
 
 // noteConversations remembers what the panes' agents run now, with their

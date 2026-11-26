@@ -145,3 +145,139 @@ func TestSavesDoNotOverlap(t *testing.T) {
 		t.Errorf("%d saves ran at once", overlapped)
 	}
 }
+
+func TestRestoreAgentTitleKind(t *testing.T) {
+	d := testDaemon(t)
+	p, err := newPane(d, "s1", proto.Pane{
+		ID:           "p1",
+		Dir:          d.dir,
+		Agent:        "codex",
+		AgentSession: &proto.AgentSession{Agent: "codex", ID: "019a2b3c-4d5e"},
+		AgentTitle:   "修复重启后标题",
+		Status:       proto.Idle,
+		Cols:         80,
+		Rows:         24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.term.Close() })
+	p.agentTitleKind = agentTitlePrompt
+	d.sessions = []*session{{id: "s1", project: "pr", panes: []*pane{p}}}
+	d.panes["p1"] = p
+	d.saveState()
+
+	data, err := os.ReadFile(d.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st savedState
+	if err := json.Unmarshal(data, &st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Sessions) != 1 || len(st.Sessions[0].Panes) != 1 {
+		t.Fatalf("saved state: %+v", st)
+	}
+	sp := st.Sessions[0].Panes[0]
+	if sp.AgentTitle != "修复重启后标题" || sp.AgentTitleKind != agentTitlePrompt {
+		t.Fatalf("saved pane = (%q, %d), want (%q, %d)", sp.AgentTitle, sp.AgentTitleKind, "修复重启后标题", agentTitlePrompt)
+	}
+
+	// Restore with saved AgentTitleKind: /clear resets AgentTitle and a new prompt sets it.
+	d2 := testDaemon(t)
+	if err := os.WriteFile(d2.statePath(), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d2.restore()
+	t.Cleanup(func() { _ = d2.removeSession("s1") })
+	rp := d2.findPane("p1")
+	if rp == nil {
+		t.Fatal("p1 was not restored")
+	}
+	rp.mu.Lock()
+	rp.info.Agent = "codex"
+	if rp.info.AgentTitle != "修复重启后标题" || rp.agentTitleKind != agentTitlePrompt {
+		rp.mu.Unlock()
+		t.Fatalf("restored = (%q, %d)", rp.info.AgentTitle, rp.agentTitleKind)
+	}
+	rp.mu.Unlock()
+
+	rp.input([]byte("/clear\r"))
+	rp.mu.Lock()
+	if rp.info.AgentTitle != "" || rp.agentTitleKind != agentTitleNone {
+		rp.mu.Unlock()
+		t.Fatalf("after /clear on restored pane: (%q, %d)", rp.info.AgentTitle, rp.agentTitleKind)
+	}
+	rp.mu.Unlock()
+
+	rp.input([]byte("新的首条提问\r"))
+	rp.mu.Lock()
+	if rp.info.AgentTitle != "新的首条提问" || rp.agentTitleKind != agentTitlePrompt {
+		rp.mu.Unlock()
+		t.Fatalf("after new prompt on restored pane: (%q, %d)", rp.info.AgentTitle, rp.agentTitleKind)
+	}
+	rp.mu.Unlock()
+
+	// Legacy state without AgentTitleKind defaults to agentTitlePrompt so /clear still works.
+	d3 := testDaemon(t)
+	st.Sessions[0].Panes[0].AgentTitleKind = agentTitleNone
+	legacyData, _ := json.Marshal(st)
+	if err := os.WriteFile(d3.statePath(), legacyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d3.restore()
+	t.Cleanup(func() { _ = d3.removeSession("s1") })
+	rp3 := d3.findPane("p1")
+	if rp3 == nil {
+		t.Fatal("legacy p1 was not restored")
+	}
+	rp3.mu.Lock()
+	rp3.info.Agent = "codex"
+	if rp3.info.AgentTitle != "修复重启后标题" || rp3.agentTitleKind != agentTitlePrompt {
+		rp3.mu.Unlock()
+		t.Fatalf("legacy restored = (%q, %d)", rp3.info.AgentTitle, rp3.agentTitleKind)
+	}
+	rp3.mu.Unlock()
+
+	// Unsupported resume command or resumeAgents=false must not restore AgentTitle.
+	d4 := testDaemon(t)
+	rp4 := d4.restorePane("s2", savedPane{
+		ID:             "p4",
+		Dir:            d4.dir,
+		Agent:          &proto.AgentSession{Agent: "antigravity", ID: "abc"},
+		AgentTitle:     "should not restore",
+		AgentTitleKind: agentTitlePrompt,
+		Cols:           80,
+		Rows:           24,
+	}, "now", true)
+	if rp4 == nil {
+		t.Fatal("rp4 was nil")
+	}
+	t.Cleanup(rp4.close)
+	rp4.mu.Lock()
+	if rp4.info.AgentTitle != "" || rp4.agentTitleKind != agentTitleNone {
+		rp4.mu.Unlock()
+		t.Fatalf("unsupported resume kept AgentTitle = (%q, %d)", rp4.info.AgentTitle, rp4.agentTitleKind)
+	}
+	rp4.mu.Unlock()
+
+	rp5 := d4.restorePane("s3", savedPane{
+		ID:             "p5",
+		Dir:            d4.dir,
+		Agent:          &proto.AgentSession{Agent: "codex", ID: "019a2b3c-4d5e"},
+		AgentTitle:     "disabled resume",
+		AgentTitleKind: agentTitlePrompt,
+		Cols:           80,
+		Rows:           24,
+	}, "now", false)
+	if rp5 == nil {
+		t.Fatal("rp5 was nil")
+	}
+	t.Cleanup(rp5.close)
+	rp5.mu.Lock()
+	if rp5.info.AgentTitle != "" || rp5.agentTitleKind != agentTitleNone {
+		rp5.mu.Unlock()
+		t.Fatalf("disabled resume kept AgentTitle = (%q, %d)", rp5.info.AgentTitle, rp5.agentTitleKind)
+	}
+	rp5.mu.Unlock()
+}

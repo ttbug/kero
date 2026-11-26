@@ -16,8 +16,8 @@ func TestConsoleTitle(t *testing.T) {
 		`Fix the build`:                                                                              false,
 		`Deploying: C:\deploy.ps1 running`:                                                           false,
 	} {
-		if got := looksLikePath(title); got != want {
-			t.Errorf("looksLikePath(%q) = %v", title, got)
+		if got := LooksLikePath(title); got != want {
+			t.Errorf("LooksLikePath(%q) = %v", title, got)
 		}
 	}
 	p := Pane{Process: "node", Title: `管理员: C:\Program Files\PowerShell\7\pwsh.exe`}
