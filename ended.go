@@ -162,11 +162,7 @@ func (a *App) endedRow(c *ui.Context, pal *palette, h *host, cv proto.Conversati
 	}
 	row.ContextMenu(func(m *ui.Menu) { a.endedMenu(m, h, cv) })
 	row.Children(func() {
-		i := programIcons[cv.Agent]
-		if i == nil {
-			i = terminalIcon
-		}
-		ui.Icon(c, i).Size(16, 16).TextColor(pal.textMuted).Shrink(0)
+		renderProgramIcon(c, &proto.Pane{Agent: cv.Agent}, 16, pal.textMuted, true)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, cv.Label()).FontSize(13).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)

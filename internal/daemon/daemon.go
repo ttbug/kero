@@ -655,7 +655,12 @@ func expandHome(p string) string {
 var agents = []string{
 	"claude", "codex", "gemini", "opencode", "amp", "aider", "cursor-agent", "droid",
 	"qwen", "goose", "crush", "copilot", "kiro-cli", "cline", "auggie", "kimi", "pi", "omp",
-	"codebuddy", "pig",
+	"codebuddy", "pig", "antigravity",
+}
+
+var agentAliases = map[string]string{
+	"agy":             "antigravity",
+	"antigravity-cli": "antigravity",
 }
 
 func detectAgent(name string, args []string) string {
@@ -672,6 +677,12 @@ func detectAgent(name string, args []string) string {
 		if a := detect.Executable(c); a != "" {
 			return a
 		}
+		if a, ok := agentAliases[c]; ok {
+			return a
+		}
+		if strings.HasPrefix(c, "agy-") {
+			return "antigravity"
+		}
 		for _, a := range agents {
 			if c == a || strings.HasPrefix(c, a+"-") && a != "pi" {
 				return a
@@ -687,7 +698,7 @@ func detectAgent(name string, args []string) string {
 		}
 		a = strings.ReplaceAll(a, `\`, "/")
 		for _, ag := range agents {
-			if len(ag) > 3 && (strings.Contains(a, "/"+ag+"/") || strings.Contains(a, "/"+ag+"-code/")) {
+			if len(ag) > 3 && (strings.Contains(a, "/"+ag+"/") || strings.Contains(a, "/"+ag+"-code/") || strings.Contains(a, "/"+ag+"-cli/")) {
 				return ag
 			}
 		}

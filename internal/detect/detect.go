@@ -63,6 +63,7 @@ var manifestFS embed.FS
 // manifests names the manifest of each agent the daemon tells (see
 // daemon.agents), where it is not the agent's name.
 var manifests = map[string]string{
+	"agy":          "antigravity",
 	"cursor-agent": "cursor",
 	"copilot":      "github-copilot",
 	"kiro-cli":     "kiro",

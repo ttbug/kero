@@ -273,6 +273,56 @@ func TestSidebarFooterAgentStatus(t *testing.T) {
 	}
 }
 
+// Antigravity sessions show their dedicated emblem, brand color, and
+// "Antigravity" program name in both session rows and the attention card.
+func TestSidebarAntigravity(t *testing.T) {
+	i18n.SetLocaleFunc(func() string { return "zh-Hans" })
+	t.Cleanup(func() { i18n.SetLocaleFunc(nil) })
+	a := testApp(t)
+	a.local().conn = connReady
+	a.st.Projects = []proto.Project{{ID: "p1", Name: "kero", Dir: "/tmp/kero"}}
+	a.st.Sessions = []proto.Session{
+		{ID: "s1", Project: "p1", Name: "侧边栏适配", Pane: proto.Pane{Shell: "zsh", Process: "antigravity", Agent: "antigravity", Status: proto.Working}},
+		{ID: "s2", Project: "p1", Name: "确认提交", Pane: proto.Pane{Shell: "zsh", Process: "antigravity", Agent: "antigravity", Status: proto.Waiting, Kind: "permission"}},
+	}
+	a.selected = "s1"
+
+	p := &a.st.Sessions[0].Pane
+	if got := programBitmap(p); got == nil {
+		t.Fatal("programBitmap(antigravity) = nil, want decoded bitmap")
+	}
+	if got := programBitmap(&proto.Pane{Agent: "agy"}); got == nil {
+		t.Fatal("programBitmap(agy) = nil, want decoded bitmap")
+	}
+	if got := programIcon(p); got != programIcons["antigravity"] || got == terminalIcon {
+		t.Fatalf("programIcon(antigravity) = %p, want %p", got, programIcons["antigravity"])
+	}
+	if got := programColor(&darkPalette, p); got != agentColors["antigravity"] {
+		t.Fatalf("programColor(dark, antigravity) = %v, want %v", got, agentColors["antigravity"])
+	}
+	if got := programColor(&lightPalette, p); got != agentColors["antigravity"] {
+		t.Fatalf("programColor(light, antigravity) = %v, want %v", got, agentColors["antigravity"])
+	}
+
+	tt := ui.NewTester(a.view, 1100, 700)
+	for _, dark := range []bool{true, false} {
+		tt.SetDark(dark)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		for _, want := range []string{"侧边栏适配", "确认提交", "Antigravity", "1 运行中", "1 需要你"} {
+			if !tt.HasText(want) {
+				t.Errorf("antigravity sidebar missing %q; texts %q", want, tt.Texts())
+			}
+		}
+		name := "sidebar-antigravity-light"
+		if dark {
+			name = "sidebar-antigravity-dark"
+		}
+		shot(t, tt, name)
+	}
+}
+
 // A project folds all its sessions away, the one shown included, which
 // stays shown in the window.
 func TestFoldHidesSelected(t *testing.T) {

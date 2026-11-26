@@ -1,0 +1,63 @@
+id = "antigravity"
+version = "2026.11.26.1"
+min_engine_version = 3
+updated_at = "2026-11-26T00:00:00Z"
+aliases = ["agy", "antigravity-cli"]
+
+[[rules]]
+id = "permission_or_question_prompt"
+state = "blocked"
+priority = 1200
+region = "bottom_non_empty_lines(12)"
+visible_blocker = true
+any = [
+  { all = [{ contains = ["allow once"] }, { contains = ["always allow"] }] },
+  { all = [{ contains = ["allow"] }, { contains = ["deny"] }, { any = [{ contains = ["waiting for permission"] }, { contains = ["waiting for user confirmation"] }, { contains = ["requires approval"] }] }] },
+  { contains = ["do you want to proceed"] },
+  { contains = ["waiting for user confirmation"] },
+  { contains = ["waiting for permission"] },
+  { contains = ["requires approval"] },
+  { all = [{ contains = ["to navigate"] }, { any = [{ contains = ["enter to select"] }, { contains = ["enter to submit"] }] }, { contains = ["esc to cancel"] }] },
+]
+
+[[rules]]
+id = "osc_title_working"
+state = "working"
+priority = 1100
+region = "osc_title"
+visible_working = true
+regex = ['^[\x{2800}-\x{28FF}\x{25D0}-\x{25D3}] ']
+
+[[rules]]
+id = "osc_progress_working"
+state = "working"
+priority = 1050
+region = "osc_progress"
+visible_working = true
+regex = ['^4;[13](?:;|$)']
+
+[[rules]]
+id = "footer_working"
+state = "working"
+priority = 900
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+any = [
+  { contains = ["esc to interrupt"] },
+  { contains = ["esc to cancel"] },
+  { line_regex = ['^\s*[\x{2800}-\x{28FF}]\s+\S'] },
+]
+not = [
+  { contains = ["do you want to proceed"] },
+  { contains = ["waiting for permission"] },
+  { contains = ["waiting for user confirmation"] },
+  { contains = ["to navigate"] },
+]
+
+[[rules]]
+id = "osc_progress_idle"
+state = "idle"
+priority = 250
+region = "osc_progress"
+visible_idle = true
+regex = ['^4;0(?:;|$)']

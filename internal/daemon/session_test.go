@@ -333,3 +333,22 @@ func TestRestartThatFailedLeavesThePaneAsItWas(t *testing.T) {
 		t.Errorf("the scrollback does not say the restart failed:\n%s", text)
 	}
 }
+
+func TestDetectAgentAntigravity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"agy", nil, "antigravity"},
+		{"agy-dev", nil, "antigravity"},
+		{"antigravity", nil, "antigravity"},
+		{"antigravity-cli", nil, "antigravity"},
+		{"node", []string{"node", "/Users/dev/.npm/antigravity-cli/bin/cli.js"}, "antigravity"},
+		{"bash", []string{"bash", "-l"}, ""},
+	} {
+		if got := detectAgent(tc.name, tc.args); got != tc.want {
+			t.Errorf("detectAgent(%q, %q) = %q, want %q", tc.name, tc.args, got, tc.want)
+		}
+	}
+}

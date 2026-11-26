@@ -393,7 +393,7 @@ func (a *App) paletteView(c *ui.Context, pal *palette) {
 					case paletteSession:
 						statusIcon(c, pal, it.session.Status, it.session.Unread, 14)
 					case paletteConversation:
-						ui.Icon(c, programIcon(&proto.Pane{Agent: it.conv.Agent})).Size(14, 14).TextColor(pal.textFaint)
+						renderProgramIcon(c, &proto.Pane{Agent: it.conv.Agent}, 14, pal.textFaint, true)
 					default:
 						ui.Icon(c, returnIcon).Size(14, 14).TextColor(pal.textFaint)
 					}

@@ -839,7 +839,7 @@ func (a *App) sessionRow(c *ui.Context, pal *palette, s *proto.Session, n *int, 
 		}
 		iconWrap.Children(func() {
 			ui.Box(c).Size(26, 26).Radius(7).Center().Background(pal.sideIconBg).Border(1, iconBorder).
-				Children(func() { ui.Icon(c, programIcon(&s.Pane)).Size(14, 14).TextColor(col) })
+				Children(func() { renderProgramIcon(c, &s.Pane, 14, col, false) })
 		})
 		body := ui.Column(c).Grow(1).MinWidth(0).Justify(ui.Center).Gap(3)
 		if detailed {
@@ -1014,7 +1014,7 @@ func (a *App) paneRow(c *ui.Context, pal *palette, s *proto.Session, p *proto.Pa
 		}
 	})
 	row.Children(func() {
-		ui.Icon(c, programIcon(p)).Size(13, 13).TextColor(programColor(pal, p)).Shrink(0)
+		renderProgramIcon(c, p, 13, programColor(pal, p), false)
 		name := ui.Text(c, p.PaneName()).FontSize(12.5).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).TextColor(pal.textMuted)
 		if focused || p.Unread {
 			name.TextColor(pal.text)
@@ -1426,7 +1426,7 @@ func (a *App) sidebarAttentionCard(c *ui.Context, pal *palette, waiting []*proto
 				if s.Process == "" && !s.Browser() && s.Status != proto.Exited {
 					col = pal.attention
 				}
-				ui.Icon(c, programIcon(&s.Pane)).Size(12, 12).TextColor(col).Shrink(0)
+				renderProgramIcon(c, &s.Pane, 12, col, false)
 				ui.Text(c, name).FontSize(11.5).FontWeight(550).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
 				ui.Spacer(c)
 				ui.Text(c, prog).FontSize(10.5).TextColor(pal.textMuted).SingleLine().Shrink(0)

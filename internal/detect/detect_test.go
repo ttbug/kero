@@ -14,7 +14,7 @@ func TestManifestsCompile(t *testing.T) {
 	if err := Load(); err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []string{"claude", "codex", "codebuddy", "gemini", "opencode", "amp", "cursor-agent", "droid", "qwen", "copilot", "kiro-cli", "cline", "kimi", "pi", "pig"} {
+	for _, a := range []string{"claude", "codex", "codebuddy", "gemini", "antigravity", "opencode", "amp", "cursor-agent", "droid", "qwen", "copilot", "kiro-cli", "cline", "kimi", "pi", "pig"} {
 		if !Known(a) {
 			t.Errorf("no rules for %s", a)
 		}
@@ -116,6 +116,31 @@ func TestPiG(t *testing.T) {
 		if got := Detect("pig", Input{Screen: c.screen}); got.State != c.state {
 			t.Errorf("%q: %s (rule %q), want %s", c.screen, got.State, got.Rule, c.state)
 		}
+	}
+}
+
+func TestAntigravity(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    Input
+		state State
+	}{
+		{"title spinner", Input{Title: "⠋ Antigravity"}, Working},
+		{"osc progress working", Input{Progress: "4;3;"}, Working},
+		{"footer esc to cancel", Input{Screen: "Thinking...\nesc to cancel\n"}, Working},
+		{"footer spinner line", Input{Screen: "⠙ Running tool\n"}, Working},
+		{"permission allow once", Input{Screen: "Run git status?\nAllow once\nAlways allow\n"}, Blocked},
+		{"question panel", Input{Screen: "Select an option\n↑/↓ to navigate · enter to select · esc to cancel\n"}, Blocked},
+		{"osc progress idle", Input{Progress: "4;0;"}, Idle},
+		{"prompt idle", Input{Screen: "> \n"}, Idle},
+	}
+	for _, c := range cases {
+		if got := Detect("antigravity", c.in); got.State != c.state {
+			t.Errorf("%s: %s (rule %q), want %s", c.name, got.State, got.Rule, c.state)
+		}
+	}
+	if got := Detect("agy", Input{Title: "⠋ Antigravity"}); got.State != Working {
+		t.Errorf("agy alias: %s, want working", got.State)
 	}
 }
 

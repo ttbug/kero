@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 	"kero/internal/proto"
@@ -13,6 +14,9 @@ import (
 //
 //go:embed icons/*.svg
 var iconFiles embed.FS
+
+//go:embed icons/antigravity.png
+var antigravityPNG []byte
 
 // glyph returns an icon of the set, as "f7-gear-alt".
 func glyph(name string) *ui.SVG {
@@ -81,6 +85,51 @@ func init() {
 	} {
 		programIcons[name] = glyph("si-" + logo)
 	}
+	programIcons["antigravity"] = glyph("antigravity")
+	programIcons["agy"] = programIcons["antigravity"]
+}
+
+var (
+	programBitmapsOnce sync.Once
+	programBitmaps     map[string]*ui.Bitmap
+)
+
+func loadProgramBitmaps() {
+	programBitmapsOnce.Do(func() {
+		programBitmaps = map[string]*ui.Bitmap{}
+		if bm, err := ui.DecodeBitmap(antigravityPNG); err == nil {
+			programBitmaps["antigravity"] = bm
+			programBitmaps["agy"] = bm
+		}
+	})
+}
+
+// programBitmap returns the embedded color bitmap logo for a pane's
+// foreground program, when one is registered.
+func programBitmap(p *proto.Pane) *ui.Bitmap {
+	if p == nil || p.Browser() {
+		return nil
+	}
+	loadProgramBitmaps()
+	for _, name := range []string{p.Agent, p.Process, p.Runtime} {
+		if bm := programBitmaps[name]; bm != nil {
+			return bm
+		}
+	}
+	return nil
+}
+
+// renderProgramIcon renders a pane's program logo, preferring its embedded
+// color bitmap when present and falling back to the monochrome SVG icon.
+func renderProgramIcon(c *ui.Context, p *proto.Pane, size float32, col ui.Color, muted bool) ui.Element {
+	if bm := programBitmap(p); bm != nil {
+		img := ui.Image(c, bm).Size(size+2, size+2).Fit(ui.Contain).Shrink(0)
+		if muted || (p != nil && p.Status == proto.Exited) {
+			img.Opacity(0.5)
+		}
+		return img
+	}
+	return ui.Icon(c, programIcon(p)).Size(size, size).TextColor(col).Shrink(0)
 }
 
 // programIcon is the logo of the pane's foreground program, as Claude's
@@ -102,8 +151,9 @@ func programIcon(p *proto.Pane) *ui.SVG {
 // agentColors are the colors of coding agents whose logos have one of
 // their own, as Claude's orange; the others take the text's.
 var agentColors = map[string]ui.Color{
-	"claude": ui.Hex("#d97757"),
-	"gemini": ui.Hex("#3186ff"),
+	"claude":      ui.Hex("#d97757"),
+	"gemini":      ui.Hex("#3186ff"),
+	"antigravity": ui.Hex("#4c8df6"),
 }
 
 // programColor is the color of a pane's program icon in the sidebar: a

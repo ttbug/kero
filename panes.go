@@ -548,7 +548,7 @@ func (a *App) paneHeader(c *ui.Context, pal *palette, bar ui.TitleBar, shown flo
 				if p.Status != proto.Idle || p.Unread {
 					statusIconP(c, pal, p.Status, p.Unread, p.Progress, 13)
 				} else {
-					ui.Icon(c, programIcon(p)).Size(14, 14).TextColor(pal.textFaint)
+					renderProgramIcon(c, p, 14, pal.textFaint, false)
 				}
 			}
 			title, size := p.PaneName(), float32(13.5)
