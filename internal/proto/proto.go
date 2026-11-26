@@ -501,12 +501,54 @@ func IsGenericAgentTitle(title, agent string) bool {
 	return false
 }
 
-// AgentConversationTitle returns the conversation title inferred for a coding
-// agent (from its transcript or first prompt), filtering out paths and generic
-// agent names.
+func agentAllowsOSCTitle(agent string) bool {
+	return agent == "antigravity"
+}
+
+func (p *Pane) matchesPaneDirName(s string) bool {
+	for _, dir := range []string{p.WorkDir(), p.Dir} {
+		if dir != "" && strings.EqualFold(s, DirName(dir)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Pane) agentOSCTitle() string {
+	if p == nil || !agentAllowsOSCTitle(p.Agent) {
+		return ""
+	}
+	t := CleanTitle(p.Title)
+	if t == "" || LooksLikePath(t) || IsGenericAgentTitle(t, p.Agent) {
+		return ""
+	}
+	if p.Shell != "" && strings.EqualFold(t, p.Shell) {
+		return ""
+	}
+	if p.matchesPaneDirName(t) {
+		return ""
+	}
+	for _, sep := range []string{" - ", " — "} {
+		if head, tail, ok := strings.Cut(t, sep); ok && matchesAgentName(strings.TrimSpace(head), p.Agent) {
+			tail = strings.TrimSpace(tail)
+			if tail == "" || LooksLikePath(tail) || p.matchesPaneDirName(tail) {
+				return ""
+			}
+		}
+	}
+	return t
+}
+
+// AgentConversationTitle returns the conversation title for a coding agent
+// (preferring an allowlisted agent's meaningful terminal OSC title, else its
+// transcript or first prompt title), filtering out paths, generic agent names,
+// and leftover shell or directory titles.
 func (p *Pane) AgentConversationTitle() string {
 	if p == nil || p.Agent == "" {
 		return ""
+	}
+	if t := p.agentOSCTitle(); t != "" {
+		return t
 	}
 	if t := CleanTitle(p.AgentTitle); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
 		return t

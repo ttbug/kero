@@ -336,6 +336,7 @@ func TestSidebarSessionTitle(t *testing.T) {
 	}
 	a.st.Sessions = []proto.Session{
 		{ID: "s1", Project: "p1", Pane: proto.Pane{ID: "a", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "Antigravity", AgentTitle: "配置按钮删除", Status: proto.Idle, Created: created}},
+		{ID: "s1b", Project: "p1", Pane: proto.Pane{ID: "a2", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "✳ 侧栏标题优化", AgentTitle: "帮我排查侧边栏会话名", Status: proto.Idle, Created: created}},
 		{ID: "s2", Project: "p1", Pane: proto.Pane{ID: "b", Shell: "zsh", Process: "claude", Agent: "claude", Title: "✳ Claude Code", AgentTitle: "那你帮我出一版新的视觉，并帮我做个侧边栏", Status: proto.Working, Created: created}},
 		{ID: "s3", Project: "p1", Pane: proto.Pane{ID: "c", Shell: "zsh", Process: "codex", Agent: "codex", Title: "codex|kero|Ready|01a215d6-a2...", Status: proto.Idle, Created: created}},
 		{ID: "s4", Project: "p1", Pane: proto.Pane{ID: "d", Shell: "zsh", Process: "vim", Title: "main.go", Status: proto.Idle, Created: created}},
@@ -352,6 +353,7 @@ func TestSidebarSessionTitle(t *testing.T) {
 		tt.Frame()
 		for _, want := range []string{
 			"配置按钮删除",
+			"侧栏标题优化",
 			"那你帮我出一版新的视觉，并帮我做个侧边栏",
 			"新会话",
 			"main.go",
@@ -365,7 +367,7 @@ func TestSidebarSessionTitle(t *testing.T) {
 				t.Errorf("dark=%t missing %q; texts %q", dark, want, tt.Texts())
 			}
 		}
-		if tt.HasText("✳ Claude Code") || tt.HasText("codex|kero|Ready|01a215d6-a2...") || tt.HasText("one-rust ·") {
+		if tt.HasText("✳ Claude Code") || tt.HasText("✳ 侧栏标题优化") || tt.HasText("帮我排查侧边栏会话名") || tt.HasText("codex|kero|Ready|01a215d6-a2...") || tt.HasText("one-rust ·") {
 			t.Errorf("dark=%t showed agent OSC title or wrong fallback: %q", dark, tt.Texts())
 		}
 		name := "sidebar-titles-light"

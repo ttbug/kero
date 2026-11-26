@@ -114,8 +114,48 @@ func TestSidebarTitle(t *testing.T) {
 		ID:   "s2b",
 		Pane: Pane{ID: "p2b", Process: "antigravity", Agent: "antigravity", Title: "✳ 配置按钮删除", Dir: "/src/one-rust"},
 	}
-	if got := agentOSC.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
-		t.Fatalf("agent OSC without AgentTitle = %q, want 新会话", got)
+	if got := agentOSC.SidebarTitle(NameFocused, "新会话"); got != "配置按钮删除" {
+		t.Fatalf("antigravity OSC title = %q, want 配置按钮删除", got)
+	}
+
+	agyOSCOverPrompt := Session{
+		ID:   "s2c",
+		Pane: Pane{ID: "p2c", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "⠋ 配置按钮删除", AgentTitle: "帮我把配置按钮删掉", Dir: "/src/one-rust"},
+	}
+	if got := agyOSCOverPrompt.SidebarTitle(NameFocused, "新会话"); got != "配置按钮删除" {
+		t.Fatalf("antigravity OSC over prompt = %q, want 配置按钮删除", got)
+	}
+	if got := agyOSCOverPrompt.DisplayName(NameFocused); got != "配置按钮删除" {
+		t.Fatalf("DisplayName with antigravity OSC = %q, want 配置按钮删除", got)
+	}
+	agyOSCOverPrompt.Name = "手动标题"
+	if got := agyOSCOverPrompt.SidebarTitle(NameFocused, "新会话"); got != "手动标题" {
+		t.Fatalf("explicit Name over antigravity OSC = %q, want 手动标题", got)
+	}
+
+	for _, ignored := range []string{"Antigravity", "agy", "/src/one-rust", "~/one-rust", "zsh", "one-rust", "Antigravity - one-rust"} {
+		withPrompt := Session{
+			ID:   "s2d",
+			Pane: Pane{ID: "p2d", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: ignored, AgentTitle: "帮我把配置按钮删掉", Dir: "/src/one-rust"},
+		}
+		if got := withPrompt.SidebarTitle(NameFocused, "新会话"); got != "帮我把配置按钮删掉" {
+			t.Fatalf("antigravity ignored OSC %q with AgentTitle = %q, want 帮我把配置按钮删掉", ignored, got)
+		}
+		noPrompt := Session{
+			ID:   "s2e",
+			Pane: Pane{ID: "p2e", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: ignored, Dir: "/src/one-rust"},
+		}
+		if got := noPrompt.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
+			t.Fatalf("antigravity ignored OSC %q without AgentTitle = %q, want 新会话", ignored, got)
+		}
+	}
+
+	claudeOSC := Session{
+		ID:   "s2f",
+		Pane: Pane{ID: "p2f", Process: "claude", Agent: "claude", Title: "✳ 某个标题", Dir: "/src/one-rust"},
+	}
+	if got := claudeOSC.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
+		t.Fatalf("claude OSC without AgentTitle = %q, want 新会话", got)
 	}
 
 	prompted := Session{

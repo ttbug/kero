@@ -2,6 +2,7 @@
 
 ## 当前阶段
 
+- Antigravity 侧边栏与显示标题优先级已调整为优先采用有效终端 OSC 标题并保留首条提示词作兜底（同时过滤泛化名称、路径及残留 shell/目录标题，Codex/Claude 等非白名单 Agent 保持原有行为）；专项回归、race 检查、深浅色渲染检查与 `go tool mygo vet .` 通过，全量测试仅存在此前已记录的五项失败。
 - 已处理 `main`（`6de2a2d`）合入 `feat/one` 的图标与历史会话标题冲突，同时保留 Pi 图标／transcript 标题、Antigravity 彩色图标及当前分支的标题优先级和恢复行为；专项回归、race、静态检查及深浅色渲染通过，全量测试仍有已记录的五项失败。
 - Xview 应用名称及品牌图标替换已实现并专项验证：采用用户第二张图的彩色图案，修复系统为原透明位图补白底的问题，主图现为深色铺满的实心正方形；菜单栏使用简化的单色 X。本地 `Xview.app` 构建成功，macOS 原生图标渲染与静态检查通过，全量测试仍有此前已记录的五项失败。
 - 左侧边栏已完成第一行真实会话标题升级（保留第二行 `状态 · Agent/程序名` 不变；Agent 会话优先级为 `手动命名` > `Claude Code transcript 标题` > `Agent 首条有效用户输入` > `新会话` / `New Session`，不再采用终端 OSC 标题以免 `codex|...` 等状态串覆盖会话标题，同步更新提示卡与双击重命名逻辑）；专项回归、race 检查、渲染截图检查、`go tool mygo vet .` 与 `go tool mygo i18n check .` 均通过，全量测试仅存在既有失败项。
@@ -14,6 +15,9 @@
 
 ## 已完成
 
+- Antigravity 终端 OSC 标题优先展示（保留首条提示词兜底）：
+  - 在 `internal/proto/proto.go` 新增 `agentAllowsOSCTitle`（当前放行 `"antigravity"`）、`matchesPaneDirName` 与 `Pane.agentOSCTitle`，并更新 `Pane.AgentConversationTitle`（供 `Session.SidebarTitle`、`Pane.ConversationTitle` 与 `Session.DisplayName` 共用）：有效 OSC 标题优先于首条提示词 `AgentTitle`，同时过滤空串、路径、`IsGenericAgentTitle`、残留 shell 名、目录名及 `<agent> - <dir/path>`（含 `—`）标题；手动命名 `Session.Name` 仍保持最高优先级，Codex/Claude 等非白名单 Agent 行为不变。
+  - 更新 `internal/proto/layout_test.go`（`TestSidebarTitle`）与 `sidebar_test.go`（`TestSidebarSessionTitle`），覆盖 Antigravity OSC 覆盖提示词、手动命名优先级、泛化/shell/目录 OSC 标题回退及 Claude/Codex 屏蔽行为。
 - `6de2a2d` 合并冲突：`icons.go` 同时注册 Pi 与 Antigravity，保留彩色位图渲染；`paneConversation` 优先采用有效 `AgentTitle`，统一使用既有 Agent 状态串过滤及 Pi 的 `π - 目录名` 过滤，保留恢复时回填标题逻辑。新增表驱动回归覆盖优先级、Pi 默认标题、Codex 状态串、路径及 Agent 名称。
 - Xview 应用名称和图标：
   - `mygo.json` 的打包名称与 macOS 权限说明改为 `Xview`，同步默认窗口标题、无会话标题、非 macOS 应用菜单名称、设置页版本名称和测试通知标题；内部命令、应用标识、数据目录及远程协议保持原有约定。
@@ -66,6 +70,7 @@
 
 ## 最近验证
 
+- 2026-11-26（Antigravity OSC 标题优先展示）：`gofmt -l internal/proto/proto.go internal/proto/layout_test.go sidebar_test.go`、`git diff --check` 与 `go tool mygo vet .` 通过；`CGO_ENABLED=0 TMPDIR=/tmp go test -race ./internal/proto ./internal/daemon -run 'Test.*Title|TestDisplayName|TestConsoleTitle|TestConversation'` 通过（`internal/proto` `2.060s`、`internal/daemon` `1.850s`）；`CGO_ENABLED=0 TMPDIR=/tmp KERO_SHOTS=/tmp/kero-agy-title-shots go test -v -run 'TestSidebarSessionTitle|TestSidebarAntigravity' .` 通过（`1.139s`），已检查 `/tmp/kero-agy-title-shots/sidebar-titles-dark.png` 与 `/tmp/kero-agy-title-shots/sidebar-titles-light.png` 渲染结果；`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为此前已记录的五项既有失败（`TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground`、`TestCommandTellsExit`、`TestBridgeScript`，日志：`/tmp/kero-agy-osc-title-full.log`）。未进行真实桌面窗口验证。
 - 2026-11-26（`6de2a2d` 合并冲突）：`go tool mygo vet .`、`git diff --check` 通过；会话专项与 race 检查通过（`TestPaneConversationMergedTitles`、`TestPiTitle`、`TestClaudeTitle`、`TestConversationTitleIgnoresCodexStatusAndRestoresTitle`、`Test.*Conversation`，`2.484s`）；图标与侧栏专项通过（`TestProgramIconPi`、`TestSidebarAntigravity`、`TestSidebarSessionTitle`，`1.375s`），已检查 Antigravity 深浅色渲染。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败仍为已记录的 `TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground/zsh`、`TestCommandTellsExit/zsh`、`TestBridgeScript`；日志为 `/tmp/kero-merge-6de2a2d-full.log`，截图为 `/tmp/kero-merge-6de2a2d-shots/`。未进行真实桌面窗口验证。
 - 2026-11-26（Xview 应用图标白底修复）：已先用 macOS 原生图标接口复现系统合成白色底板，再修正主图底板和透明通道；源图检查确认 1024×1024、alpha 全为 255，原生渲染后四个边缘检查点由亮色变为深色，白色底板消失。`go tool mygo vet .`、`git diff --check` 通过；本地临时签名构建通过，产物为 `build/xview-icon-no-border/darwin-arm64/Xview.app`，未安装或发布。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束，仍为此前五项失败（右侧栏、失效工作目录、两项 Zsh、远程桥接），日志为 `/tmp/xview-icon-no-border-tests.log`。本轮未改动 Go 逻辑或菜单栏图标。
 - 2026-11-26（Xview 名称与图标替换）：`go tool mygo vet .`、`git diff --check`、PNG 尺寸及透明通道检查通过；`CGO_ENABLED=0 TMPDIR=/tmp KERO_SHOTS=/tmp/xview-brand-shots go test -v -run 'TestSidebarBrandAndTasks|TestSidebarReferenceLayout|TestAwakeTray|Test.*Menu|Test.*Settings' .` 通过（`4.512s`），已检查图标深浅背景预览 `/tmp/xview-brand-preview.png` 和侧栏渲染。`CGO_ENABLED=0 TMPDIR=/tmp go tool mygo build -platform darwin/arm64 -o build/xview-brand-check -sign - -skip-notarize -skip-dmg .` 通过，产物为 `build/xview-brand-check/darwin-arm64/Xview.app`，未公证、未安装、未发布。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项与本文件此前记录一致：`TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground/zsh`、`TestCommandTellsExit/zsh`、`TestBridgeScript`；日志为 `/tmp/xview-brand-full.log`。
