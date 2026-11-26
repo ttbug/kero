@@ -216,9 +216,9 @@ func paneConversation(p *pane, project, name string) *proto.Conversation {
 		return nil
 	}
 	c := &proto.Conversation{Agent: as.Agent, ID: as.ID, Dir: p.info.WorkDir(), Project: project, Name: name}
-	if t := proto.CleanTitle(p.info.Title); t != "" && !proto.IsGenericAgentTitle(t, as.Agent) {
+	if t := proto.CleanTitle(p.info.AgentTitle); t != "" && !proto.LooksLikePath(t) && !proto.IsGenericAgentTitle(t, as.Agent) {
 		c.Title = t
-	} else if t := proto.CleanTitle(p.info.AgentTitle); t != "" && !proto.IsGenericAgentTitle(t, as.Agent) {
+	} else if t := proto.CleanTitle(p.info.Title); t != "" && !proto.LooksLikePath(t) && !proto.IsGenericAgentTitle(t, as.Agent) {
 		c.Title = t
 	}
 	return c
@@ -354,6 +354,10 @@ func (d *Daemon) resumeConversation(p proto.ConversationParams) (proto.Session, 
 	if err != nil {
 		return info, err
 	}
+	restoredTitle := proto.CleanTitle(c.Title)
+	if restoredTitle == "" || proto.LooksLikePath(restoredTitle) || proto.IsGenericAgentTitle(restoredTitle, c.Agent) {
+		restoredTitle = ""
+	}
 	d.mu.Lock()
 	if s := d.findSessionLocked(info.ID); s != nil {
 		// The name was the agent's, or the user's: either way, the
@@ -362,6 +366,10 @@ func (d *Daemon) resumeConversation(p proto.ConversationParams) (proto.Session, 
 		for _, pn := range s.panes {
 			pn.mu.Lock()
 			pn.info.AgentSession = &as
+			if restoredTitle != "" && pn.info.AgentTitle == "" {
+				pn.info.AgentTitle = restoredTitle
+				pn.agentTitleKind = agentTitlePrompt
+			}
 			pn.mu.Unlock()
 		}
 		info = d.sessionInfo(s)

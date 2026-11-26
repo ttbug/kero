@@ -466,37 +466,65 @@ var genericAgentTitles = map[string][]string{
 	"qwen":         {"qwen", "qwen code"},
 }
 
-// IsGenericAgentTitle reports whether title only names the coding agent itself
-// (such as "Claude Code" or "Antigravity"), rather than a conversation title.
-func IsGenericAgentTitle(title, agent string) bool {
-	t := strings.TrimSpace(CleanTitle(title))
-	if t == "" || agent == "" {
+func matchesAgentName(s, agent string) bool {
+	if s == "" || agent == "" {
 		return false
 	}
-	if strings.EqualFold(t, agent) {
+	if strings.EqualFold(s, agent) {
 		return true
 	}
-	if name := AgentNames[agent]; name != "" && strings.EqualFold(t, name) {
+	if name := AgentNames[agent]; name != "" && strings.EqualFold(s, name) {
 		return true
 	}
 	for _, alias := range genericAgentTitles[agent] {
-		if strings.EqualFold(t, alias) {
+		if strings.EqualFold(s, alias) {
 			return true
 		}
 	}
 	return false
 }
 
+// IsGenericAgentTitle reports whether title only names the coding agent itself
+// (such as "Claude Code", "Antigravity", or "codex|kero|Ready|..."), rather than
+// a conversation title.
+func IsGenericAgentTitle(title, agent string) bool {
+	t := strings.TrimSpace(CleanTitle(title))
+	if t == "" || agent == "" {
+		return false
+	}
+	if matchesAgentName(t, agent) {
+		return true
+	}
+	if head, _, ok := strings.Cut(t, "|"); ok && matchesAgentName(strings.TrimSpace(head), agent) {
+		return true
+	}
+	return false
+}
+
+// AgentConversationTitle returns the conversation title inferred for a coding
+// agent (from its transcript or first prompt), filtering out paths and generic
+// agent names.
+func (p *Pane) AgentConversationTitle() string {
+	if p == nil || p.Agent == "" {
+		return ""
+	}
+	if t := CleanTitle(p.AgentTitle); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
+		return t
+	}
+	return ""
+}
+
 // ConversationTitle returns the meaningful title of a running program or coding
-// agent in the pane, filtering out filesystem paths and generic agent names.
+// agent in the pane, preferring AgentConversationTitle and filtering out
+// filesystem paths and generic agent names.
 func (p *Pane) ConversationTitle() string {
 	if p == nil || (p.Process == "" && p.Agent == "") {
 		return ""
 	}
-	if t := CleanTitle(p.Title); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
+	if t := p.AgentConversationTitle(); t != "" {
 		return t
 	}
-	if t := CleanTitle(p.AgentTitle); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
+	if t := CleanTitle(p.Title); t != "" && !LooksLikePath(t) && !IsGenericAgentTitle(t, p.Agent) {
 		return t
 	}
 	return ""
@@ -561,8 +589,14 @@ func (s *Session) SidebarTitle(from, emptyTitle string) string {
 			p = f
 		}
 	}
-	if t := p.ConversationTitle(); t != "" {
-		return t
+	if p.Agent != "" {
+		if t := p.AgentConversationTitle(); t != "" {
+			return t
+		}
+	} else if p.Process != "" {
+		if t := CleanTitle(p.Title); t != "" && !LooksLikePath(t) {
+			return t
+		}
 	}
 	if p.Browser() && !s.hasTerminal() {
 		return p.PaneName()

@@ -81,6 +81,8 @@ func TestIsGenericAgentTitle(t *testing.T) {
 		{"agy", "antigravity", true},
 		{"Codex", "codex", true},
 		{"OpenAI Codex", "codex", true},
+		{"codex|kero|Ready|01a215d6-a2...", "codex", true},
+		{"codex | kero | Working | 1234", "codex", true},
 		{"Fix login", "claude", false},
 		{"配置按钮删除", "antigravity", false},
 		{"Antigravity", "", false},
@@ -100,28 +102,31 @@ func TestSidebarTitle(t *testing.T) {
 		t.Fatalf("NameFolder title = %q, want one-rust", got)
 	}
 
-	generic := Session{
+	codexOSC := Session{
 		ID:   "s2",
-		Pane: Pane{ID: "p2", Process: "antigravity", Agent: "antigravity", Title: "Antigravity", Dir: "/src/one-rust"},
+		Pane: Pane{ID: "p2", Process: "codex", Agent: "codex", Title: "codex|kero|Ready|01a215d6-a2...", Dir: "/src/one-rust"},
 	}
-	if got := generic.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
-		t.Fatalf("generic agent title = %q, want 新会话", got)
+	if got := codexOSC.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
+		t.Fatalf("codex OSC title = %q, want 新会话", got)
+	}
+
+	agentOSC := Session{
+		ID:   "s2b",
+		Pane: Pane{ID: "p2b", Process: "antigravity", Agent: "antigravity", Title: "✳ 配置按钮删除", Dir: "/src/one-rust"},
+	}
+	if got := agentOSC.SidebarTitle(NameFocused, "新会话"); got != "新会话" {
+		t.Fatalf("agent OSC without AgentTitle = %q, want 新会话", got)
 	}
 
 	prompted := Session{
 		ID:   "s3",
-		Pane: Pane{ID: "p3", Agent: "antigravity", Title: "Antigravity", AgentTitle: "那你帮我出一版新的视觉", Dir: "/src/one-rust"},
+		Pane: Pane{ID: "p3", Process: "codex", Agent: "codex", Title: "codex|kero|Ready|01a215d6-a2...", AgentTitle: "那你帮我出一版新的视觉", Dir: "/src/one-rust"},
 	}
 	if got := prompted.SidebarTitle(NameFocused, "新会话"); got != "那你帮我出一版新的视觉" {
 		t.Fatalf("agentTitle = %q, want 那你帮我出一版新的视觉", got)
 	}
 	if got := prompted.DisplayName(NameFocused); got != "那你帮我出一版新的视觉" {
 		t.Fatalf("DisplayName with agentTitle = %q, want 那你帮我出一版新的视觉", got)
-	}
-
-	prompted.Pane.Title = "✳ 配置按钮删除"
-	if got := prompted.SidebarTitle(NameFocused, "新会话"); got != "配置按钮删除" {
-		t.Fatalf("OSC title over AgentTitle = %q, want 配置按钮删除", got)
 	}
 
 	prompted.Name = "自定义名称"

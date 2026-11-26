@@ -335,9 +335,9 @@ func TestSidebarSessionTitle(t *testing.T) {
 		{ID: "p2", Name: "project", Dir: "/tmp/project"},
 	}
 	a.st.Sessions = []proto.Session{
-		{ID: "s1", Project: "p1", Pane: proto.Pane{ID: "a", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "✳ 配置按钮删除", Status: proto.Idle, Created: created}},
+		{ID: "s1", Project: "p1", Pane: proto.Pane{ID: "a", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "Antigravity", AgentTitle: "配置按钮删除", Status: proto.Idle, Created: created}},
 		{ID: "s2", Project: "p1", Pane: proto.Pane{ID: "b", Shell: "zsh", Process: "claude", Agent: "claude", Title: "✳ Claude Code", AgentTitle: "那你帮我出一版新的视觉，并帮我做个侧边栏", Status: proto.Working, Created: created}},
-		{ID: "s3", Project: "p1", Pane: proto.Pane{ID: "c", Shell: "zsh", Process: "antigravity", Agent: "antigravity", Title: "Antigravity", Status: proto.Idle, Created: created}},
+		{ID: "s3", Project: "p1", Pane: proto.Pane{ID: "c", Shell: "zsh", Process: "codex", Agent: "codex", Title: "codex|kero|Ready|01a215d6-a2...", Status: proto.Idle, Created: created}},
 		{ID: "s4", Project: "p1", Pane: proto.Pane{ID: "d", Shell: "zsh", Process: "vim", Title: "main.go", Status: proto.Idle, Created: created}},
 		{ID: "s5", Project: "p1", Name: "手动命名会话", Pane: proto.Pane{ID: "e", Shell: "zsh", Process: "claude", Agent: "claude", Title: "✳ Other", Status: proto.Idle, Created: created}},
 		{ID: "s6", Project: "p2", Pane: proto.Pane{ID: "f", Shell: "zsh", Dir: "/tmp/project", Status: proto.Idle, Created: created}},
@@ -358,14 +358,15 @@ func TestSidebarSessionTitle(t *testing.T) {
 			"手动命名会话",
 			"Antigravity",
 			"Claude Code",
+			"Codex",
 			"Shell",
 		} {
 			if !tt.HasText(want) {
 				t.Errorf("dark=%t missing %q; texts %q", dark, want, tt.Texts())
 			}
 		}
-		if tt.HasText("✳ Claude Code") || tt.HasText("one-rust ·") {
-			t.Errorf("dark=%t showed generic agent title or wrong fallback: %q", dark, tt.Texts())
+		if tt.HasText("✳ Claude Code") || tt.HasText("codex|kero|Ready|01a215d6-a2...") || tt.HasText("one-rust ·") {
+			t.Errorf("dark=%t showed agent OSC title or wrong fallback: %q", dark, tt.Texts())
 		}
 		name := "sidebar-titles-light"
 		if dark {

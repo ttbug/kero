@@ -116,4 +116,66 @@ func TestPromptTitleTracker(t *testing.T) {
 			t.Fatalf("truncated title len=%d (%v): %q", len([]rune(title)), ev, title)
 		}
 	})
+
+	t.Run("cursor editing home end arrows delete ctrl shortcuts", func(t *testing.T) {
+		var tr promptTitleTracker
+		tr.feed([]byte("fix bug"))
+		tr.feed([]byte("\x1b[H")) // Home
+		ev, title := tr.feed([]byte("please \r"))
+		if ev != promptTitle || title != "please fix bug" {
+			t.Fatalf("Home insert got (%v, %q), want please fix bug", ev, title)
+		}
+
+		tr.reset()
+		tr.feed([]byte("fix bad bug\x1b[D\x1b[D\x1b[D\x1b[D\x7f\x7f\x7fold\x1b[F now"))
+		ev, title = tr.feed([]byte("\r"))
+		if ev != promptTitle || title != "fix old bug now" {
+			t.Fatalf("arrow edit got (%v, %q), want fix old bug now", ev, title)
+		}
+
+		// Delete key and Ctrl+A / Ctrl+E / Ctrl+K / Ctrl+U with UTF-8 split chunks
+		tr.reset()
+		zh := []byte("修标题问题")
+		for _, b := range zh {
+			tr.feed([]byte{b})
+		}
+		tr.feed([]byte("\x01"))         // Ctrl+A -> start
+		tr.feed([]byte("\x1b[3~"))      // Delete '修'
+		tr.feed([]byte("优化"))           // -> "优化标题问题"
+		tr.feed([]byte("\x05"))         // Ctrl+E -> end
+		tr.feed([]byte("\x1b[D\x1b[D")) // before "问题"
+		tr.feed([]byte("\x0b"))         // Ctrl+K -> "优化标题"
+		ev, title = tr.feed([]byte("\r"))
+		if ev != promptTitle || title != "优化标题" {
+			t.Fatalf("UTF-8 cursor edit got (%v, %q), want 优化标题", ev, title)
+		}
+	})
+
+	t.Run("unreliable navigation and completion aborts inference", func(t *testing.T) {
+		for _, seq := range []string{
+			"fix \x1b[A\r",    // Up arrow (history)
+			"fix \x1b[B\r",    // Down arrow
+			"fix \t\r",        // Tab completion
+			"fix \x1b[1;5D\r", // Ctrl+Left word jump
+			"fix \x1bb\r",     // Alt+b word jump
+			"fix \x1bOA\r",    // SS3 Up
+		} {
+			var tr promptTitleTracker
+			if ev, title := tr.feed([]byte(seq)); ev != promptNone {
+				t.Errorf("unreliable seq %q produced (%v, %q), want promptNone", seq, ev, title)
+			}
+			// Next normal submission works cleanly after abort.
+			if ev, title := tr.feed([]byte("clean next prompt\r")); ev != promptTitle || title != "clean next prompt" {
+				t.Errorf("after %q, next prompt got (%v, %q)", seq, ev, title)
+			}
+		}
+
+		// Clearing whole line with ESC or Ctrl+U recovers from unreliable state.
+		var tr promptTitleTracker
+		tr.feed([]byte("draft\x1b[A"))
+		tr.feed([]byte{0x1b})
+		if ev, title := tr.feed([]byte("recovered prompt\r")); ev != promptTitle || title != "recovered prompt" {
+			t.Fatalf("after ESC reset got (%v, %q)", ev, title)
+		}
+	})
 }

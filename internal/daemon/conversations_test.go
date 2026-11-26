@@ -333,3 +333,74 @@ func TestUnreadableConversationsAreSaid(t *testing.T) {
 		t.Fatalf("the unreadable conversations were not said: %q", buf.String())
 	}
 }
+
+func TestConversationTitleIgnoresCodexStatusAndRestoresTitle(t *testing.T) {
+	d := testDaemon(t)
+	dir := d.projects[0].Dir
+	ses, err := d.create(proto.CreateParams{Project: "pr", Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := d.findPane(ses.Panes[0].ID)
+	p.mu.Lock()
+	p.info.Process = "codex"
+	p.info.Agent = "codex"
+	p.info.AgentSession = &proto.AgentSession{Agent: "codex", ID: "019a2b3c"}
+	p.info.Title = "codex|kero|Ready|01a215d6-a2..."
+	p.mu.Unlock()
+
+	// Without AgentTitle, structured Codex status OSC title is not recorded.
+	list := d.conversations()
+	if len(list) != 1 || list[0].Title != "" {
+		t.Fatalf("unexpected title from codex status OSC: %+v", list)
+	}
+
+	// With AgentTitle set, AgentTitle is saved over OSC status string.
+	p.mu.Lock()
+	p.info.AgentTitle = "排查侧边栏会话标题"
+	p.agentTitleKind = agentTitlePrompt
+	p.mu.Unlock()
+	if err := d.removeSession(ses.ID); err != nil {
+		t.Fatal(err)
+	}
+	list = d.conversations()
+	if len(list) != 1 || list[0].Title != "排查侧边栏会话标题" {
+		t.Fatalf("ended conversation = %+v, want Title 排查侧边栏会话标题", list)
+	}
+
+	// Resuming restores AgentTitle and agentTitleKind so subsequent prompts don't overwrite it,
+	// while /clear can still reset it.
+	resumed, err := d.resumeConversation(proto.ConversationParams{Agent: "codex", ID: "019a2b3c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.removeSession(resumed.ID) })
+	if len(resumed.Panes) != 1 || resumed.Panes[0].AgentTitle != "排查侧边栏会话标题" {
+		t.Fatalf("resumed pane AgentTitle = %+v", resumed.Panes)
+	}
+	rp := d.findPane(resumed.Panes[0].ID)
+	rp.mu.Lock()
+	rp.info.Process = "codex"
+	rp.info.Agent = "codex"
+	if rp.agentTitleKind != agentTitlePrompt {
+		rp.mu.Unlock()
+		t.Fatalf("resumed agentTitleKind = %d, want %d", rp.agentTitleKind, agentTitlePrompt)
+	}
+	rp.mu.Unlock()
+
+	rp.input([]byte("follow up question\r"))
+	rp.mu.Lock()
+	if rp.info.AgentTitle != "排查侧边栏会话标题" {
+		rp.mu.Unlock()
+		t.Fatalf("follow-up overwrote restored title: %q", rp.info.AgentTitle)
+	}
+	rp.mu.Unlock()
+
+	rp.input([]byte("/clear\r"))
+	rp.mu.Lock()
+	if rp.info.AgentTitle != "" || rp.agentTitleKind != agentTitleNone {
+		rp.mu.Unlock()
+		t.Fatalf("/clear did not reset restored title: (%q, %d)", rp.info.AgentTitle, rp.agentTitleKind)
+	}
+	rp.mu.Unlock()
+}
