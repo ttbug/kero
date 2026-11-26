@@ -1266,22 +1266,47 @@ func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 	}
 }
 
-// sidebarFooter is the sidebar's foot: what across the sessions wants a look
-// at the left, and the buttons for the palette, projects and Settings at the right.
+// sidebarFooter is the sidebar's foot: an inline list of waiting/approval
+// sessions when any need attention, then the bottom bar with running/waiting
+// agent counts at the left and palette, project, and settings buttons at the right.
 func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
+	ready := a.local().conn == connReady
+	var waitingList, workingList, doneList []*proto.Session
+	if ready {
+		waiting := func(s *proto.Session) bool { return s.Status == proto.Waiting }
+		working := func(s *proto.Session) bool { return s.Status == proto.Working }
+		done := func(s *proto.Session) bool { return s.Status == proto.Idle && s.Unread }
+		waitingList = a.footerSessions(waiting)
+		workingList = a.footerSessions(working)
+		doneList = a.footerSessions(done)
+		if len(waitingList) > 0 {
+			a.sidebarAttentionCard(c, pal, waitingList)
+		}
+	}
 	ui.Box(c).AlignSelf(ui.Stretch).Height(1).Background(pal.divider)
-	ui.Row(c).Height(36).Shrink(0).Padding(0, 10, 2, 10).Gap(2).AlignItems(ui.Center).DragWindow().Children(func() {
+	ui.Row(c).Height(36).Shrink(0).Padding(0, 10, 2, 10).Gap(4).AlignItems(ui.Center).DragWindow().Children(func() {
 		switch a.local().conn {
 		case connReady:
 			if a.daemonStale() {
 				a.restartChip(c, pal)
 			}
-			waiting := func(s *proto.Session) bool { return s.Status == proto.Waiting }
-			working := func(s *proto.Session) bool { return s.Status == proto.Working }
-			done := func(s *proto.Session) bool { return s.Status == proto.Idle && s.Unread }
-			a.footerChip(c, pal, proto.Waiting, false, waiting, pal.attention, locales.FooterNeedsYou, a.tip(locales.FooterGoToIt(), "session.attention"), a.jumpToAttention)
-			a.footerChip(c, pal, proto.Working, false, working, pal.textMuted, locales.FooterWorking, locales.FooterGoToIt(), nil)
-			a.footerChip(c, pal, proto.Idle, true, done, pal.textMuted, locales.FooterDone, locales.FooterGoToIt(), nil)
+			compact := a.prefs.SidebarWidth < 245 || a.daemonStale() || (len(waitingList) > 0 && len(workingList) > 0 && len(doneList) > 0)
+			if len(workingList) > 0 {
+				a.footerChip(c, pal, proto.Working, false, workingList, compact, pal.accent, pal.textMuted, ui.Transparent,
+					locales.StatusWorking(), locales.FooterWorking, locales.FooterGoToIt(), func() {
+						a.jumpTo(func(s *proto.Session) bool { return s.Status == proto.Working })
+					})
+			}
+			if len(waitingList) > 0 {
+				a.footerChip(c, pal, proto.Waiting, false, waitingList, compact, pal.attention, pal.attention, pal.attnSoft,
+					locales.StatusNeedsYou(), locales.FooterNeedsYou, a.tip(locales.FooterGoToIt(), "session.attention"), a.jumpToAttention)
+			}
+			if len(doneList) > 0 {
+				a.footerChip(c, pal, proto.Idle, true, doneList, compact, pal.textMuted, pal.textMuted, ui.Transparent,
+					"", locales.FooterDone, locales.FooterGoToIt(), func() {
+						a.jumpTo(func(s *proto.Session) bool { return s.Status == proto.Idle && s.Unread })
+					})
+			}
 		case connConnecting:
 			a.footerNote(c, pal, pal.textFaint, locales.StatusConnecting())
 		default:
@@ -1294,38 +1319,173 @@ func (a *App) sidebarFooter(c *ui.Context, pal *palette) {
 	})
 }
 
-// footerChip counts the sessions that are, by is, as their rows' status
-// icon and the count, in fg; a click goes to the next of them, by jump,
-// or else after the one shown. one and many word its label and tooltip,
-// as "%d session needs you". It shows nothing while none is.
-func (a *App) footerChip(c *ui.Context, pal *palette, st proto.Status, unread bool, is func(*proto.Session) bool, fg ui.Color, say func(int) string, hint string, jump func()) {
-	n := 0
-	for i := range a.st.Sessions {
-		// A host the app lost says nothing new, as for the Dock's badge.
-		if h := a.hostOf(a.st.Sessions[i].ID); h.remote() && h.conn != connReady {
-			continue
-		}
-		if is(&a.st.Sessions[i]) {
-			n++
+func (a *App) footerSessions(is func(*proto.Session) bool) []*proto.Session {
+	var out []*proto.Session
+	for _, g := range a.groups() {
+		for _, s := range g.sessions {
+			if h := a.hostOf(s.ID); h.remote() && h.conn != connReady {
+				continue
+			}
+			if is(s) {
+				out = append(out, s)
+			}
 		}
 	}
+	return out
+}
+
+func waitingKindText(kind string) string {
+	switch kind {
+	case "permission":
+		return locales.PaneNeedsPermission()
+	case "question":
+		return locales.PaneHasQuestion()
+	case "auth":
+		return locales.PaneNeedsSignIn()
+	}
+	return ""
+}
+
+func statusPulseDot(c *ui.Context, col ui.Color, size float32) ui.Element {
+	box := ui.Box(c).Size(size, size).Shrink(0)
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.AnimationFrame()
+		wave := float32(0.5 + 0.5*math.Sin(float64(p.Now().UnixMilli()%1600)/1600*2*math.Pi))
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		rad := min(r.W, r.H) / 2
+		var halo ui.Path
+		halo.Circle(cx, cy, rad*0.95)
+		p.FillPath(&halo, col.Alpha(0.15+0.20*wave))
+		var dot ui.Path
+		dot.Circle(cx, cy, rad*0.55)
+		p.FillPath(&dot, col)
+	})
+	return box
+}
+
+func (a *App) footerSessionTip(list []*proto.Session, summary, hint string) string {
+	var b strings.Builder
+	b.WriteString(summary)
+	b.WriteString(" · ")
+	b.WriteString(hint)
+	limit := min(len(list), 4)
+	for i := range limit {
+		s := list[i]
+		b.WriteByte('\n')
+		b.WriteString(s.DisplayName(a.set.SessionName))
+		b.WriteString(" · ")
+		b.WriteString(sidebarProgram(&s.Pane))
+		if s.Message != "" {
+			b.WriteString(": ")
+			b.WriteString(strings.Join(strings.Fields(s.Message), " "))
+		} else if k := waitingKindText(s.Kind); k != "" {
+			b.WriteString(": ")
+			b.WriteString(k)
+		}
+	}
+	if len(list) > limit {
+		b.WriteString("\n+")
+		b.WriteString(itoa(len(list) - limit))
+	}
+	return b.String()
+}
+
+func (a *App) sidebarAttentionCard(c *ui.Context, pal *palette, waiting []*proto.Session) {
+	card := ui.Column(c.Key("attention-card")).Shrink(0).Margin(4, 6, 6, 6).Padding(7, 8, 6, 8).Gap(3).
+		Radius(9).Background(pal.attnSoft).Border(1, pal.attention.Alpha(0.28))
+	card.Children(func() {
+		ui.Row(c).Height(18).Gap(6).AlignItems(ui.Center).Children(func() {
+			statusPulseDot(c, pal.attention, 8)
+			ui.Text(c, locales.StatusNeedsYou()).FontSize(11).FontWeight(650).TextColor(pal.attention).SingleLine()
+			ui.Text(c, itoa(len(waiting))).FontSize(10).FontWeight(650).FontFeatures("tnum").
+				TextColor(pal.attention).Padding(0, 5).Radius(4).Background(pal.attention.Alpha(0.16)).SingleLine()
+			ui.Spacer(c)
+			if k := a.keys("session.attention"); k != "" {
+				ui.Text(c, k).FontSize(10).TextColor(pal.attention.Alpha(0.8)).SingleLine()
+			}
+		})
+		shown := min(len(waiting), 3)
+		for i := range shown {
+			s := waiting[i]
+			id := s.ID
+			prog := sidebarProgram(&s.Pane)
+			name := s.DisplayName(a.set.SessionName)
+			tip := name + " · " + prog
+			if s.Message != "" {
+				tip += "\n" + strings.Join(strings.Fields(s.Message), " ")
+			} else if k := waitingKindText(s.Kind); k != "" {
+				tip += "\n" + k
+			}
+			b := ui.ButtonBase(c.Key("attn-"+id)).Height(24).Padding(0, 6).Gap(6).Radius(6).AlignItems(ui.Center).
+				Label(name + " · " + prog).Tooltip(tip)
+			if b.Hovered() {
+				b.Background(pal.rowHover)
+			}
+			b.Children(func() {
+				col := programColor(pal, &s.Pane)
+				if s.Process == "" && !s.Browser() && s.Status != proto.Exited {
+					col = pal.attention
+				}
+				ui.Icon(c, programIcon(&s.Pane)).Size(12, 12).TextColor(col).Shrink(0)
+				ui.Text(c, name).FontSize(11.5).FontWeight(550).TextColor(pal.text).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
+				ui.Spacer(c)
+				ui.Text(c, prog).FontSize(10.5).TextColor(pal.textMuted).SingleLine().Shrink(0)
+			})
+			if b.Clicked() {
+				a.defer_(func() {
+					if target := a.session(id); target != nil {
+						delete(a.prefs.Collapsed, a.groupKey(target))
+						a.selectSession(id)
+					}
+				})
+			}
+		}
+		if len(waiting) > shown {
+			more := ui.ButtonBase(c.Key("attn-more")).Height(20).Padding(0, 6).Radius(5).AlignItems(ui.Center).
+				Label(locales.FooterNeedsYou(len(waiting)))
+			if more.Hovered() {
+				more.Background(pal.rowHover)
+			}
+			more.Children(func() {
+				ui.Text(c, "+"+itoa(len(waiting)-shown)+" · "+locales.FooterGoToIt()).
+					FontSize(10.5).FontWeight(500).TextColor(pal.attention).SingleLine()
+			})
+			if more.Clicked() {
+				a.jumpToAttention()
+			}
+		}
+	})
+}
+
+// footerChip counts the sessions in list, showing a pulsing dot or status
+// icon with a short label; clicking jumps to the next matching session.
+func (a *App) footerChip(c *ui.Context, pal *palette, st proto.Status, unread bool, list []*proto.Session, compact bool, dotCol, fg, bg ui.Color, shortLabel string, say func(int) string, hint string, jump func()) {
+	n := len(list)
 	if n == 0 {
 		return
 	}
 	words := say(n)
-	b := ui.ButtonBase(c.Key("chip-"+string(st))).Height(24).Padding(0, 8, 0, 6).Gap(5).Radius(12).AlignItems(ui.Center).
-		Label(words).Tooltip(words + " · " + hint)
+	b := ui.ButtonBase(c.Key("chip-"+string(st))).Height(22).Padding(0, 7).Gap(5).Radius(11).AlignItems(ui.Center).
+		Label(words).Tooltip(a.footerSessionTip(list, words, hint))
+	if bg != ui.Transparent {
+		b.Background(bg)
+	}
 	if b.Hovered() {
 		b.Background(pal.rowHover)
 	}
 	b.Children(func() {
-		statusIcon(c, pal, st, unread, 12)
-		ui.Textf(c, "%d", n).FontSize(12).FontWeight(500).TextColor(fg).FontFeatures("tnum")
+		if st == proto.Working || st == proto.Waiting {
+			statusPulseDot(c, dotCol, 8)
+		} else {
+			statusIcon(c, pal, st, unread, 12)
+		}
+		text := itoa(n)
+		if !compact && shortLabel != "" {
+			text = itoa(n) + " " + shortLabel
+		}
+		ui.Text(c, text).FontSize(11.5).FontWeight(500).TextColor(fg).FontFeatures("tnum").SingleLine()
 	})
 	if b.Clicked() {
-		if jump == nil {
-			jump = func() { a.jumpTo(is) }
-		}
 		jump()
 	}
 }

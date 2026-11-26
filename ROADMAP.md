@@ -2,7 +2,7 @@
 
 ## 当前阶段
 
-- 左侧边栏已完成卡片与树形动态数据流样式改造（含品牌弧线装饰、项目计数徽章、项目卡片及 `Files & Diff`/`Project Files` 子行、从分割线垂直引出的圆角中性树干及仅在 `Working` 会话触发的动态数据流脉冲、会话图标容器与状态/程序副标题、底部状态栏重排），专项回归、多主题渲染检查、`go tool mygo vet .` 与 `go tool mygo i18n check .` 均通过；全量测试存在既有/未修改包失败项。
+- 左侧边栏已完成卡片与树形动态数据流样式改造（含品牌弧线装饰、项目计数徽章、项目卡片及 `Files & Diff`/`Project Files` 子行、从分割线垂直引出的圆角中性树干及仅在 `Working` 会话触发的动态数据流脉冲、会话图标容器与状态/程序副标题、左下角 Agent 运行计数与待审批提示卡片），专项回归、多主题渲染检查、`go tool mygo vet .` 与 `go tool mygo i18n check .` 均通过；全量测试存在既有/未修改包失败项。
 - 左侧栏参考布局及主题联动修复已完成，专项回归和渲染检查通过；全量测试存在未通过项。
 - 已处理 `main`（`2c7c487`）合入 `feat/own` 的冲突及恢复流程死锁，相关回归通过；尚未创建合并提交。
 - 已处理本轮 `main`（`4d09d61`）合入的项目改名冲突，相关回归与 race 检查通过；尚未创建本轮合并提交。
@@ -13,7 +13,7 @@
 
 - 左侧边栏卡片树形重构（按用户确认省略顶部 Dashboard/Matrix、暂不新增 Pin 置顶、副标题状态后显示 Agent/程序名）：
   - 在 `theme.go` 新增 `sideCard`、`sideCardBorder`、`sideIconBg`、`sideTree` 调色板字段，并按深浅色与 Ghostty 主题动态派生。
-  - 在 `view.go` 顶部品牌区下方添加弧线光点装饰；`sidebarProjectSection` 拆分项目数字徽章与右侧会话数；`groupBody` 为项目增加独立圆角边框卡片、常驻 `+` 新建会话按钮及 `Files & Diff` / `Project Files` 入口行（`openProjectSide` 支持切换项目会话并打开右侧面板）；`sessionRow` / `sessionTree` / `treeElbowPath` / `treeDataFlow` / `workingDots` 实现从分割线引出的圆角中性树形连线，并仅在存在 `Working` 会话时沿连续路径向下绘制渐隐拖尾的动态数据脉冲；`sidebarFooter` 将状态计数移至左侧、工具按钮移至右侧。
+  - 在 `view.go` 顶部品牌区下方添加弧线光点装饰；`sidebarProjectSection` 拆分项目数字徽章与右侧会话数；`groupBody` 为项目增加独立圆角边框卡片、常驻 `+` 新建会话按钮及 `Files & Diff` / `Project Files` 入口行（`openProjectSide` 支持切换项目会话并打开右侧面板）；`sessionRow` / `sessionTree` / `treeElbowPath` / `treeDataFlow` / `workingDots` 实现从分割线引出的圆角中性树形连线，并仅在存在 `Working` 会话时沿连续路径向下绘制渐隐拖尾的动态数据脉冲；`sidebarFooter` 与 `sidebarAttentionCard` 在左下角展示运行中/待审批 Agent 计数、悬停会话详情并在存在待审批会话时于底部列出可点击直达（自动展开折叠项目）的审批清单。
   - 在 `project_order.go` 调整项目拖拽插入线偏移以匹配卡片间距；在 `sidebar_test.go` 与 `view_test.go` 更新布局、主题与悬浮提示回归并新增 `TestSidebarProjectFilesRow`。
 - 补齐 `AGENTS.md`，明确目录、MyGo 生命周期和验证约定。
 - 项目标题显示项目数与会话数，折叠箭头移至左侧，项目名和分支标签使用当前主题调色板。
@@ -47,6 +47,7 @@
 
 ## 最近验证
 
+- 2026-11-26（左下角 Agent 运行状态与待审批卡片）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；新增 `TestSidebarFooterAgentStatus`（验证 `N 运行中`、`N 需要你`、折叠项目内待审批会话点击直达与窄侧栏不溢出），专项回归与右侧栏测试全部通过（`11.170s`），并检查 `sidebar-footer-agents-dark.png`、`sidebar-footer-agents-light.png`、`sidebar-reference-dark.png`、`sidebar-split-panes-dark.png`。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为上述五项既有/未修改包测试（日志：`/tmp/kero-sidebar-footer-full.log`）。
 - 2026-11-26（运行中树形动态数据流改造）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；更新 `TestSidebarFollowsTheme`（校验 7 主题品牌弧线中心强调色）并新增 `TestSidebarWorkingDataFlow`（验证空闲选中态无动画、运行态树干像素随时间流动并导出 `sidebar-dataflow-dark.png`），专项回归与右侧栏测试全部通过（`9.893s`），并检查 `sidebar-reference-dark.png`、`sidebar-reference-light.png`、`sidebar-dataflow-dark.png`、`sidebar-theme-tokyonight-moon.png`。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为上述五项既有/未修改包测试（日志：`/tmp/kero-sidebar-dataflow-full.log`）。
 - 2026-11-26（连接线圆角发光样式优化）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；扩展 `TestSidebarReferenceLayout` 覆盖单会话 L 形与多会话贯通圆角树形分支，专项回归与右侧栏测试全部通过（`9.277s`），并检查 `sidebar-reference-dark.png`、`sidebar-reference-light.png`、`sidebar-split-panes-dark.png`、`sidebar-theme-tokyonight-moon.png`。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为上述五项既有/未修改包测试（日志：`/tmp/kero-sidebar-connectors-full.log`）。
 - 2026-11-26（左侧边栏卡片树形改造）：`go tool mygo vet .`、`go tool mygo i18n check .`、`git diff --check` 通过；专项回归与右侧栏测试（`TestRightSidebar`、`TestCloseInViewer`、`TestSidebar*`、`TestFold*`、`TestNeighbor`、`TestGroupBranch`、`TestSessionStatusLabel`、`TestSessionHoverClose`、`TestSessionTooltipAtPointer`、`TestDoubleClickSidebarNewSession`、`TestDragProject*`、`TestProjectMenuMoves`、`TestReorderProjects`、`TestInsertionIndex`、`TestMoveProjectFromMenu`）全部通过（`8.031s`），并检查 `/tmp/kero-sidebar-redesign-shots/` 下深浅色、窄侧栏、分窗格及 7 种主题渲染截图。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过：失败项为 `TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`（`internal/cli`）、`TestCommandInForeground` / `TestCommandTellsExit`（`internal/daemon`）、`TestBridgeScript`（`internal/remote`），日志：`/tmp/kero-sidebar-redesign-full.log`；未完成真实桌面窗口人工目视确认（本次通过 MyGo Tester 渲染验证）。

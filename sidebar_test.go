@@ -220,6 +220,59 @@ func TestSidebarProjectFilesRow(t *testing.T) {
 	}
 }
 
+// The bottom-left footer shows how many agents are running and waiting for
+// approval, and lists the sessions needing approval above it even when their
+// project is folded; clicking one unfolds and focuses it ($KERO_SHOTS).
+func TestSidebarFooterAgentStatus(t *testing.T) {
+	i18n.SetLocaleFunc(func() string { return "zh-Hans" })
+	t.Cleanup(func() { i18n.SetLocaleFunc(nil) })
+	a := testApp(t)
+	a.local().conn = connReady
+	a.st.Projects = []proto.Project{
+		{ID: "p1", Name: "one-rust", Dir: "/tmp/one-rust"},
+		{ID: "p2", Name: "js-motion", Dir: "/tmp/js-motion"},
+	}
+	a.st.Sessions = []proto.Session{
+		{ID: "s1", Project: "p1", Name: "性能优化", Pane: proto.Pane{Shell: "zsh", Agent: "claude", Status: proto.Working}},
+		{ID: "s2", Project: "p1", Name: "接口重构", Pane: proto.Pane{Shell: "zsh", Agent: "codex", Status: proto.Working}},
+		{ID: "s3", Project: "p1", Name: "发布审批", Pane: proto.Pane{Shell: "zsh", Agent: "claude", Status: proto.Waiting, Kind: "permission", Message: "Allow running git push?"}},
+		{ID: "s4", Project: "p2", Name: "依赖确认", Pane: proto.Pane{Shell: "zsh", Agent: "gemini", Status: proto.Waiting, Kind: "question"}},
+	}
+	a.selected = "s1"
+	a.prefs.Collapsed = map[string]bool{"p2": true}
+	tt := ui.NewTester(a.view, 1100, 700)
+	for _, dark := range []bool{true, false} {
+		tt.SetDark(dark)
+		tt.Frame()
+		tt.Advance(time.Second)
+		tt.Frame()
+		for _, want := range []string{"2 运行中", "2 需要你", "发布审批", "依赖确认", "gemini"} {
+			if !tt.HasText(want) {
+				t.Errorf("footer agent status missing %q; texts %q", want, tt.Texts())
+			}
+		}
+		name := "sidebar-footer-agents-light"
+		if dark {
+			name = "sidebar-footer-agents-dark"
+		}
+		shot(t, tt, name)
+	}
+
+	if err := tt.Click("依赖确认 · gemini"); err != nil {
+		t.Fatalf("could not click waiting agent item: %v", err)
+	}
+	tt.Frame()
+	if a.selected != "s4" || a.prefs.Collapsed["p2"] {
+		t.Fatalf("clicking waiting item left selected=%q collapsed=%v, want s4 and unfolded", a.selected, a.prefs.Collapsed["p2"])
+	}
+
+	a.prefs.SidebarWidth = minSidebar
+	tt.Frame()
+	if r, ok := tt.Find(a.tip(locales.SettingsTitle(), "settings.open")); !ok || r.X+r.W > minSidebar {
+		t.Fatalf("settings button escaped narrow sidebar: %v, found %t", r, ok)
+	}
+}
+
 // A project folds all its sessions away, the one shown included, which
 // stays shown in the window.
 func TestFoldHidesSelected(t *testing.T) {
