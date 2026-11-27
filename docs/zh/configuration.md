@@ -74,6 +74,7 @@ kero config check             # 报告未知的配置项、无效的值和agents
 | `line-height`         | `1.22`  | 字体默认行高的倍数                                                       |
 | `cell-width`          | `1`     | 单元格宽度，字体宽度的倍数，`0.8` 到 `2`；文字大小不变                   |
 | `font-ligatures`      | `true`  | 按字体的设计连写字符                                                     |
+| `font-feature`        |         | 字体的 OpenType 特性，同 Ghostty 的写法：`ss01` 开启、`-calt` 关闭、`cv05=2` 选备用字形；逗号分隔或重复书写，在 `font-ligatures` 之后应用 |
 | `font-thicken`        | `false` | 加粗笔画，同 Ghostty                                                     |
 | `minimum-contrast`    | `3`     | 文字与背景之间保持的最低对比度，从 `1`（不限制）到 `21`，让为深色背景设计的颜色在浅色背景上也清晰可读，同 Ghostty |
 | `window-padding-color` | `extend` | 终端文字周围的留白显示什么：`background` 为终端背景；`extend` 为相邻单元格的颜色（保持背景色的行除外）；`extend-always` 总是相邻单元格的颜色，同 Ghostty。设为 `background` 时，程序底部的栏保持一行高 |
@@ -100,6 +101,8 @@ kero config check             # 报告未知的配置项、无效的值和agents
 | `scrollback-limit` | `4`     | 每个窗格保留的回滚缓冲大小，单位 MB；`0` 表示不保留             |
 | `image-storage-limit` | `64` | 每个窗格中程序显示的图片最多占用多少，单位 MB；`0` 表示无限制   |
 
+zsh 会从 Kero 自带的一个 `.zshenv` 启动，它把 `ZDOTDIR` 还原为你的（或取消设置），并像 zsh 那样运行你的启动文件。它还会标记每个提示符的开始和结束位置，让终端在调整大小、zsh 重绘之前清除提示符。否则，像 Powerlevel10k 那样占满终端宽度的提示符，会在每个宽度下留下一份副本。
+
 ## 通知
 
 | 配置项              | 默认值  | 说明                                           |
@@ -115,7 +118,7 @@ kero config check             # 报告未知的配置项、无效的值和agents
 
 | 配置项           | 默认值  | 说明                                                |
 | ---------------- | ------- | --------------------------------------------------- |
-| `remote-control` | `true`  | 允许 `kero do` 和 `kero focus` 操控应用             |
+| `remote-control` | `true`  | 允许 `kero do`、`kero focus` 和 `kero browser` 操控应用 |
 
 ## 主机
 
