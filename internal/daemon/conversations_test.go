@@ -398,6 +398,7 @@ func TestPaneConversationMergedTitles(t *testing.T) {
 }
 
 func TestConversationTitleIgnoresCodexStatusAndRestoresTitle(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
 	d := testDaemon(t)
 	dir := d.projects[0].Dir
 	ses, err := d.create(proto.CreateParams{Project: "pr", Dir: dir})
@@ -466,4 +467,101 @@ func TestConversationTitleIgnoresCodexStatusAndRestoresTitle(t *testing.T) {
 		t.Fatalf("/clear did not reset restored title: (%q, %d)", rp.info.AgentTitle, rp.agentTitleKind)
 	}
 	rp.mu.Unlock()
+}
+
+func TestCodexConversationTitleFiltering(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		title string
+		want  string
+	}{
+		{"empty", "", "首条有效提示词"},
+		{"whitespace", "   ", "首条有效提示词"},
+		{"glyphs", "✳ •", "首条有效提示词"},
+		{"path", "/tmp/work", "首条有效提示词"},
+		{"decorated path", "✳ /tmp/work", "首条有效提示词"},
+		{"agent name", "Codex", "首条有效提示词"},
+		{"status", "codex|kero|Ready|session", "首条有效提示词"},
+		{"valid", "新的会话标题", "新的会话标题"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := t.TempDir()
+			t.Setenv("CODEX_HOME", cfg)
+			const id = "019a2b3c"
+			data, err := json.Marshal(map[string]string{"id": id, "thread_name": tt.title})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg, "session_index.jsonl"), append(data, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			d := testDaemon(t)
+			d.convs.note(proto.Conversation{Agent: "codex", ID: id, Title: "首条有效提示词"}, 100)
+			list := d.conversations()
+			if len(list) != 1 || list[0].Title != tt.want {
+				t.Fatalf("conversations() = %+v, want Title %q", list, tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexTitle(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CODEX_HOME", cfg)
+	id := "01a21ab6-f1da-7953-9036-9d5f0ff60e3a"
+	path := filepath.Join(cfg, "session_index.jsonl")
+	write := func(lines ...string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var cs convStore
+	if got := cs.codexTitle(id); got != "" {
+		t.Errorf("no index: %q", got)
+	}
+	if got := cs.codexTitle("../x"); got != "" {
+		t.Errorf("invalid id: %q", got)
+	}
+
+	write(
+		`{bad json`,
+		`{"id":"`+id+`","thread_name":"初步排查标题","updated_at":"2026-11-27T01:00:00Z"}`,
+		`{"id":"other-session","thread_name":"其他会话","updated_at":"2026-11-27T01:01:00Z"}`,
+		`{"id":"`+id+`","thread_name":"   ","updated_at":"2026-11-27T01:02:00Z"}`,
+		`{"id":"`+id+`","thread_name":"Codex 标题同步\n第二行忽略","updated_at":"2026-11-27T01:03:00Z"}`,
+	)
+	if got := cs.codexTitle(id); got != "Codex 标题同步" {
+		t.Errorf("latest thread_name = %q, want %q", got, "Codex 标题同步")
+	}
+	if got := cs.codexTitle("other-session"); got != "其他会话" {
+		t.Errorf("other thread_name = %q, want %q", got, "其他会话")
+	}
+
+	// Updating the index (new size and modtime) refreshes the cached title.
+	write(
+		`{"id":"`+id+`","thread_name":"Codex 标题同步","updated_at":"2026-11-27T01:03:00Z"}`,
+		`{"id":"`+id+`","thread_name":"Codex 重命名后标题","updated_at":"2026-11-27T01:05:00Z"}`,
+	)
+	os.Chtimes(path, timeAfter(path), timeAfter(path))
+	if got := cs.codexTitle(id); got != "Codex 重命名后标题" {
+		t.Errorf("updated thread_name = %q, want %q", got, "Codex 重命名后标题")
+	}
+
+	// Verify d.conversations() surfaces the latest thread_name for Codex history.
+	d := testDaemon(t)
+	d.convs.note(proto.Conversation{Agent: "codex", ID: id, Dir: "/src/app", Title: "旧的首条提示词"}, 100)
+	list := d.conversations()
+	if len(list) != 1 || list[0].Title != "Codex 重命名后标题" {
+		t.Fatalf("d.conversations() = %+v, want Title %q", list, "Codex 重命名后标题")
+	}
+
+	// Removing the index file clears the cached titles.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.codexTitle(id); got != "" {
+		t.Errorf("after remove: %q", got)
+	}
 }

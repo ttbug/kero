@@ -441,14 +441,16 @@ func (s *pane) tick(now time.Time) bool {
 	if s.look(now) {
 		changed = true
 	}
-	claudeID := ""
-	if s.info.AgentSession != nil && s.info.AgentSession.Agent == "claude" &&
+	var titleAgent, titleID string
+	if s.info.AgentSession != nil &&
+		(s.info.AgentSession.Agent == "claude" || s.info.AgentSession.Agent == "codex") &&
 		(s.titleCheckedAt.IsZero() || now.Sub(s.titleCheckedAt) >= 2*time.Second) {
-		claudeID = s.info.AgentSession.ID
+		titleAgent = s.info.AgentSession.Agent
+		titleID = s.info.AgentSession.ID
 		s.titleCheckedAt = now
 	}
 	s.mu.Unlock()
-	if claudeID != "" && s.syncClaudeTitle(claudeID) {
+	if titleID != "" && s.syncAgentTitle(titleAgent, titleID) {
 		changed = true
 	}
 	return changed
@@ -466,16 +468,29 @@ func (s *pane) resetAgentTitleLocked() bool {
 }
 
 func (s *pane) syncClaudeTitle(id string) bool {
+	return s.syncAgentTitle("claude", id)
+}
+
+func (s *pane) syncAgentTitle(agent, id string) bool {
 	if s.d == nil {
 		return false
 	}
-	title := s.d.convs.claudeTitle(id)
-	if title == "" {
+	var title string
+	switch agent {
+	case "claude":
+		title = s.d.convs.claudeTitle(id)
+	case "codex":
+		title = s.d.convs.codexTitle(id)
+	default:
+		return false
+	}
+	clean := proto.CleanTitle(title)
+	if clean == "" || proto.LooksLikePath(clean) || proto.IsGenericAgentTitle(clean, agent) {
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || s.info.AgentSession == nil || s.info.AgentSession.Agent != "claude" || s.info.AgentSession.ID != id {
+	if s.closed || s.info.AgentSession == nil || s.info.AgentSession.Agent != agent || s.info.AgentSession.ID != id {
 		return false
 	}
 	if s.info.AgentTitle == title && s.agentTitleKind == agentTitleTranscript {

@@ -477,3 +477,104 @@ func TestTickClearsStaleRestoredAgentTitle(t *testing.T) {
 	}
 	s2.mu.Unlock()
 }
+
+func TestPaneCodexTitleTracking(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CODEX_HOME", cfg)
+	indexPath := filepath.Join(cfg, "session_index.jsonl")
+	id := "01a21ab6-f1da-7953-9036-9d5f0ff60e3a"
+
+	s := testPane(t)
+	s.mu.Lock()
+	s.info.Process, s.info.Agent = "codex", "codex"
+	s.info.AgentSession = &proto.AgentSession{Agent: "codex", ID: id}
+	s.mu.Unlock()
+
+	// First prompt sets prompt-derived AgentTitle while session_index has no title.
+	s.input([]byte("帮我排查侧边栏 codex 会话名称\r"))
+	s.mu.Lock()
+	if s.info.AgentTitle != "帮我排查侧边栏 codex 会话名称" || s.agentTitleKind != agentTitlePrompt {
+		s.mu.Unlock()
+		t.Fatalf("first prompt AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+
+	// Generic status string or path in session_index must not overwrite existing valid title.
+	if err := os.WriteFile(indexPath, []byte(`{"id":"`+id+`","thread_name":"codex|kero|Ready|`+id+`"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s.syncAgentTitle("codex", id) {
+		t.Fatal("generic codex status string overwrote AgentTitle")
+	}
+	if err := os.WriteFile(indexPath, []byte(`{"id":"`+id+`","thread_name":"/tmp/work"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s.syncAgentTitle("codex", id) {
+		t.Fatal("path thread_name overwrote AgentTitle")
+	}
+
+	// Meaningful thread_name overrides the prompt-derived title.
+	if err := os.WriteFile(indexPath, []byte(`{"id":"`+id+`","thread_name":"排查 Codex 会话标题"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !s.syncAgentTitle("codex", id) {
+		t.Fatal("syncAgentTitle(codex) reported no change")
+	}
+	s.mu.Lock()
+	if s.info.AgentTitle != "排查 Codex 会话标题" || s.agentTitleKind != agentTitleTranscript {
+		s.mu.Unlock()
+		t.Fatalf("synced AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+
+	// Appending a newer thread_name updates the pane title on next sync.
+	f, err := os.OpenFile(indexPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"id":"` + id + `","thread_name":"Codex 标题已更新"}` + "\n"); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+	if !s.syncAgentTitle("codex", id) {
+		t.Fatal("syncAgentTitle(codex) did not pick up appended thread_name")
+	}
+	s.mu.Lock()
+	if s.info.AgentTitle != "Codex 标题已更新" || s.agentTitleKind != agentTitleTranscript {
+		s.mu.Unlock()
+		t.Fatalf("updated AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	}
+	s.mu.Unlock()
+
+	// Verify tick() triggers Codex title sync automatically.
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not installed")
+	}
+	tp := testPane(t)
+	proc, err := startPTY(ptyOptions{
+		Path: shell, Args: []string{"sh", "-c", "sleep 30"},
+		Dir: t.TempDir(), Env: []string{"TERM=xterm-256color"},
+		Cols: tp.info.Cols, Rows: tp.info.Rows,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { proc.Kill() })
+	tp.mu.Lock()
+	tp.proc = proc
+	tp.shellPID = proc.PID()
+	tp.info.Agent = "codex"
+	tp.info.AgentSession = &proto.AgentSession{Agent: "codex", ID: id}
+	tp.mu.Unlock()
+	if changed := tp.tick(time.Now()); !changed {
+		t.Fatal("tick() did not report change when syncing codex title")
+	}
+	tp.mu.Lock()
+	if tp.info.AgentTitle != "Codex 标题已更新" || tp.agentTitleKind != agentTitleTranscript {
+		tp.mu.Unlock()
+		t.Fatalf("tick synced AgentTitle = (%q, %d)", tp.info.AgentTitle, tp.agentTitleKind)
+	}
+	tp.mu.Unlock()
+}

@@ -40,6 +40,12 @@ type convStore struct {
 	// titles are agents' titles of their conversations, as read from
 	// their transcripts at a modification time, keyed by agent + "\x00" + id.
 	titles map[string]transcriptTitle
+	// codexIndex* caches $CODEX_HOME/session_index.jsonl parsed by session id
+	// so multiple Codex panes/histories avoid re-scanning the shared index.
+	codexIndexPath   string
+	codexIndexMod    time.Time
+	codexIndexSize   int64
+	codexIndexTitles map[string]string
 }
 
 type transcriptTitle struct {
@@ -314,6 +320,12 @@ func (d *Daemon) conversations() []proto.Conversation {
 			if t := d.convs.claudeTitle(c.ID); t != "" {
 				c.Title = t
 			}
+		case "codex":
+			if t := d.convs.codexTitle(c.ID); t != "" {
+				if clean := proto.CleanTitle(t); clean != "" && !proto.LooksLikePath(clean) && !proto.IsGenericAgentTitle(clean, c.Agent) {
+					c.Title = t
+				}
+			}
 		case "pi":
 			if t := d.convs.piTitle(c.ID); t != "" {
 				c.Title = t
@@ -408,6 +420,89 @@ var errNoTranscript = errors.New("no transcript")
 // the user gave it (/rename), else Claude's own; "" when it has none.
 func (cs *convStore) claudeTitle(id string) string {
 	return cs.transcriptTitle("claude", id, claudeTranscript, readClaudeTitle)
+}
+
+// codexTitle is Codex's title of one of its conversations from
+// $CODEX_HOME/session_index.jsonl (thread_name); "" when it has none.
+func (cs *convStore) codexTitle(id string) string {
+	if !agentSessionRe.MatchString(id) {
+		return ""
+	}
+	path := codexSessionIndexPath()
+	st, err := os.Stat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		cs.mu.Lock()
+		cs.codexIndexPath = ""
+		cs.codexIndexMod = time.Time{}
+		cs.codexIndexSize = 0
+		cs.codexIndexTitles = nil
+		cs.mu.Unlock()
+		return ""
+	}
+	mod := st.ModTime()
+	size := st.Size()
+	cs.mu.Lock()
+	if cs.codexIndexPath == path && cs.codexIndexMod.Equal(mod) && cs.codexIndexSize == size && cs.codexIndexTitles != nil {
+		title := cs.codexIndexTitles[id]
+		cs.mu.Unlock()
+		return title
+	}
+	cs.mu.Unlock()
+
+	titles, err := readCodexIndex(path)
+	if err != nil {
+		return ""
+	}
+	cs.mu.Lock()
+	cs.codexIndexPath = path
+	cs.codexIndexMod = mod
+	cs.codexIndexSize = size
+	cs.codexIndexTitles = titles
+	title := titles[id]
+	cs.mu.Unlock()
+	return title
+}
+
+func codexSessionIndexPath() string {
+	dir := os.Getenv("CODEX_HOME")
+	if dir == "" {
+		dir = filepath.Join(proto.Home(), ".codex")
+	}
+	return filepath.Join(dir, "session_index.jsonl")
+}
+
+func readCodexIndex(path string) (map[string]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	titles := make(map[string]string)
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if !bytes.Contains(line, []byte(`"thread_name"`)) {
+			continue
+		}
+		var e struct {
+			ID         string `json:"id"`
+			ThreadName string `json:"thread_name"`
+		}
+		if json.Unmarshal(line, &e) != nil {
+			continue
+		}
+		if e.ID == "" {
+			continue
+		}
+		if name := strings.TrimSpace(e.ThreadName); name != "" {
+			titles[e.ID] = titleLine(name)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return titles, nil
 }
 
 // piTitle is Pi's title of one of its conversations: the latest name
