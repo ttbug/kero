@@ -2,6 +2,7 @@
 
 ## 当前阶段
 
+- 已处理 `main`（`ac0ea5c`）合入 `feat/one` 的侧栏布局与测试冲突，保留当前卡片树形布局及时间语义，适配并保留窄侧栏回归；侧栏专项、MyGo 静态检查与渲染检查通过，全量测试仍有此前记录的五项失败；本轮合并尚未提交。
 - Antigravity 侧边栏与显示标题优先级已调整为优先采用有效终端 OSC 标题并保留首条提示词作兜底（同时过滤泛化名称、路径及残留 shell/目录标题，Codex/Claude 等非白名单 Agent 保持原有行为）；专项回归、race 检查、深浅色渲染检查与 `go tool mygo vet .` 通过，全量测试仅存在此前已记录的五项失败。
 - 已处理 `main`（`6de2a2d`）合入 `feat/one` 的图标与历史会话标题冲突，同时保留 Pi 图标／transcript 标题、Antigravity 彩色图标及当前分支的标题优先级和恢复行为；专项回归、race、静态检查及深浅色渲染通过，全量测试仍有已记录的五项失败。
 - Xview 应用名称及品牌图标替换已实现并专项验证：采用用户第二张图的彩色图案，修复系统为原透明位图补白底的问题，主图现为深色铺满的实心正方形；菜单栏使用简化的单色 X。本地 `Xview.app` 构建成功，macOS 原生图标渲染与静态检查通过，全量测试仍有此前已记录的五项失败。
@@ -15,6 +16,7 @@
 
 ## 已完成
 
+- `ac0ea5c` 合并冲突：`view.go` 保留当前分支的卡片树形会话行，移除属于 `main` 旧布局的冲突片段；`view_test.go` 保留长标题时间宽度和中／英／日窄侧栏状态边界回归，时间字段适配为 `Created`／`Activity`，按住 ⌘ 时仍校验当前布局的时间显示，不恢复旧行内编号。
 - Antigravity 终端 OSC 标题优先展示（保留首条提示词兜底）：
   - 在 `internal/proto/proto.go` 新增 `agentAllowsOSCTitle`（当前放行 `"antigravity"`）、`matchesPaneDirName` 与 `Pane.agentOSCTitle`，并更新 `Pane.AgentConversationTitle`（供 `Session.SidebarTitle`、`Pane.ConversationTitle` 与 `Session.DisplayName` 共用）：有效 OSC 标题优先于首条提示词 `AgentTitle`，同时过滤空串、路径、`IsGenericAgentTitle`、残留 shell 名、目录名及 `<agent> - <dir/path>`（含 `—`）标题；手动命名 `Session.Name` 仍保持最高优先级，Codex/Claude 等非白名单 Agent 行为不变。
   - 更新 `internal/proto/layout_test.go`（`TestSidebarTitle`）与 `sidebar_test.go`（`TestSidebarSessionTitle`），覆盖 Antigravity OSC 覆盖提示词、手动命名优先级、泛化/shell/目录 OSC 标题回退及 Claude/Codex 屏蔽行为。
@@ -70,6 +72,7 @@
 
 ## 最近验证
 
+- 2026-11-27（`ac0ea5c` 合并冲突）：`go tool mygo vet .`、`git diff --check` 与 `gofmt -l view_test.go` 通过；`view.go` 与 `HEAD` 一致，既有 `"flow-"+key` 格式差异未顺手修改。`CGO_ENABLED=0 TMPDIR=/tmp KERO_SHOTS=/tmp/kero-merge-ac0ea5c-shots go test . -run 'TestSidebar|TestSessionHoverClose|TestSessionStatusLabel|TestFold|TestNeighbor|TestGroupBranch' -count=1` 通过（`26.377s`）；已检查深浅色参考布局、窄侧栏长标题及日文时间／状态渲染。首轮截图测试因输出目录未创建失败，补建目录后重跑通过。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项与此前记录一致：`TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground/zsh`、`TestCommandTellsExit/zsh`、`TestBridgeScript`；日志为 `/tmp/kero-merge-ac0ea5c-full.log`，侧栏日志为 `/tmp/kero-merge-ac0ea5c-sidebar.log`。未进行真实桌面窗口验证。
 - 2026-11-26（Antigravity OSC 标题优先展示）：`gofmt -l internal/proto/proto.go internal/proto/layout_test.go sidebar_test.go`、`git diff --check` 与 `go tool mygo vet .` 通过；`CGO_ENABLED=0 TMPDIR=/tmp go test -race ./internal/proto ./internal/daemon -run 'Test.*Title|TestDisplayName|TestConsoleTitle|TestConversation'` 通过（`internal/proto` `2.060s`、`internal/daemon` `1.850s`）；`CGO_ENABLED=0 TMPDIR=/tmp KERO_SHOTS=/tmp/kero-agy-title-shots go test -v -run 'TestSidebarSessionTitle|TestSidebarAntigravity' .` 通过（`1.139s`），已检查 `/tmp/kero-agy-title-shots/sidebar-titles-dark.png` 与 `/tmp/kero-agy-title-shots/sidebar-titles-light.png` 渲染结果；`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败项仍为此前已记录的五项既有失败（`TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground`、`TestCommandTellsExit`、`TestBridgeScript`，日志：`/tmp/kero-agy-osc-title-full.log`）。未进行真实桌面窗口验证。
 - 2026-11-26（`6de2a2d` 合并冲突）：`go tool mygo vet .`、`git diff --check` 通过；会话专项与 race 检查通过（`TestPaneConversationMergedTitles`、`TestPiTitle`、`TestClaudeTitle`、`TestConversationTitleIgnoresCodexStatusAndRestoresTitle`、`Test.*Conversation`，`2.484s`）；图标与侧栏专项通过（`TestProgramIconPi`、`TestSidebarAntigravity`、`TestSidebarSessionTitle`，`1.375s`），已检查 Antigravity 深浅色渲染。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束但未全通过，失败仍为已记录的 `TestRightSidebarMakesRoom`、`TestNewSaysAGoneWorkingDirectory`、`TestCommandInForeground/zsh`、`TestCommandTellsExit/zsh`、`TestBridgeScript`；日志为 `/tmp/kero-merge-6de2a2d-full.log`，截图为 `/tmp/kero-merge-6de2a2d-shots/`。未进行真实桌面窗口验证。
 - 2026-11-26（Xview 应用图标白底修复）：已先用 macOS 原生图标接口复现系统合成白色底板，再修正主图底板和透明通道；源图检查确认 1024×1024、alpha 全为 255，原生渲染后四个边缘检查点由亮色变为深色，白色底板消失。`go tool mygo vet .`、`git diff --check` 通过；本地临时签名构建通过，产物为 `build/xview-icon-no-border/darwin-arm64/Xview.app`，未安装或发布。`CGO_ENABLED=0 TMPDIR=/tmp go test ./... -timeout=120s` 正常结束，仍为此前五项失败（右侧栏、失效工作目录、两项 Zsh、远程桥接），日志为 `/tmp/xview-icon-no-border-tests.log`。本轮未改动 Go 逻辑或菜单栏图标。

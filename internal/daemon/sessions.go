@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,9 +21,12 @@ type session struct {
 	created           int64
 	restored          bool
 	panes             []*pane
-	layout            *proto.Layout
-	focus, zoomed     string
-	worktree          *proto.Worktree // made for it (proto.Session.Worktree)
+	// lost are saved panes that did not come back this start: they are
+	// saved again with the session, so the next daemon can try them.
+	lost          []savedPane
+	layout        *proto.Layout
+	focus, zoomed string
+	worktree      *proto.Worktree // made for it (proto.Session.Worktree)
 }
 
 // state returns what the subscribers see.
@@ -459,10 +463,21 @@ func (d *Daemon) removePane(id string) error {
 	}
 	d.mu.Unlock()
 	p.close()
-	os.Remove(d.historyPath(id))
+	d.removeHistory(id)
 	d.changed()
 	d.log.Printf("pane %s closed", id)
 	return nil
+}
+
+// removeHistory takes a closed pane's history away. A file that is not
+// there is gone already; one that is there but cannot be taken away —
+// the folder of the histories cannot be written — stays, and nothing
+// will try again, for the pane is gone: it is said, as its saves and
+// its reads are.
+func (d *Daemon) removeHistory(id string) {
+	if err := os.Remove(d.historyPath(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		d.log.Printf("the history of %s: %v", id, err)
+	}
 }
 
 // removeSession closes a session and its panes.
@@ -482,7 +497,7 @@ func (d *Daemon) removeSession(ref string) error {
 	d.mu.Unlock()
 	for _, p := range panes {
 		p.close()
-		os.Remove(d.historyPath(p.info.ID))
+		d.removeHistory(p.info.ID)
 	}
 	d.changed()
 	d.log.Printf("session %s closed", s.id)

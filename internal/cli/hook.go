@@ -240,42 +240,62 @@ func (h agentHook) ours(command string) bool {
 	return program == "kero" || program == "kero.exe"
 }
 
-// state is "current", "outdated" (kero's hook, of another command line)
-// or "missing".
+// state is "current", "outdated" (kero's hook, of another command line),
+// "missing", or "unreadable" (the file is there and cannot be read — as
+// JSON, or in its hooks member).
 func (h agentHook) state() string {
 	b, err := os.ReadFile(h.file)
 	if err != nil {
-		return "missing"
+		if os.IsNotExist(err) {
+			return "missing"
+		}
+		return "unreadable"
 	}
 	settings, err := parseObject(b)
 	if err != nil {
-		return "missing"
+		return "unreadable"
 	}
 	state := "missing"
-	h.each(settings, func(command string) {
+	if err := h.each(settings, func(command string) {
 		if command == h.command() {
 			state = "current"
 		} else if state == "missing" {
 			state = "outdated"
 		}
-	})
+	}); err != nil {
+		return "unreadable"
+	}
 	return state
 }
 
 // each calls fn with the command of each of kero's SessionStart hooks.
-func (h agentHook) each(settings object, fn func(command string)) {
-	hooks, _ := parseObject(settings.get("hooks"))
+// An error says the file names hooks that cannot be read, which is not
+// the absence of them — the same looks edit refuses the file for.
+func (h agentHook) each(settings object, fn func(command string)) error {
+	hooks, err := parseObject(settings.get("hooks"))
+	if err != nil {
+		return fmt.Errorf("%s: hooks: %w", proto.ShortDir(h.file), err)
+	}
 	var groups []object
-	json.Unmarshal(hooks.get("SessionStart"), &groups)
+	if raw := hooks.get("SessionStart"); raw != nil {
+		if err := json.Unmarshal(raw, &groups); err != nil {
+			return fmt.Errorf("%s: hooks.SessionStart: %w", proto.ShortDir(h.file), err)
+		}
+	}
 	for _, g := range groups {
 		var handlers []struct{ Type, Command string }
-		json.Unmarshal(g.get("hooks"), &handlers)
+		if raw := g.get("hooks"); raw != nil {
+			if err := json.Unmarshal(raw, &handlers); err != nil {
+				return fmt.Errorf("%s: hooks.SessionStart.hooks: %w", proto.ShortDir(h.file), err)
+			}
+		}
 		for _, hd := range handlers {
 			if hd.Type == "command" && h.ours(hd.Command) {
 				fn(hd.Command)
 			}
 		}
 	}
+	return nil
 }
 
 // install puts the hook in the agent's settings, in place of kero's
@@ -331,10 +351,12 @@ func (h agentHook) edit(add bool) error {
 	// Already there, alone: nothing to do. Else drop kero's handlers, and
 	// the groups they leave empty.
 	n, exact := 0, false
-	h.each(settings, func(command string) {
+	if err := h.each(settings, func(command string) {
 		n++
 		exact = exact || command == h.command()
-	})
+	}); err != nil {
+		return err
+	}
 	if add && n == 1 && exact || !add && n == 0 {
 		return nil
 	}
@@ -416,10 +438,15 @@ func (p agentPlugin) content(asset string) []byte {
 }
 
 func (p agentPlugin) state() string {
-	same, there := 0, 0
+	same, there, unreadable := 0, 0, false
 	for name, asset := range p.files {
 		b, err := os.ReadFile(filepath.Join(p.dir, name))
 		if err != nil {
+			if !os.IsNotExist(err) {
+				// A file that is there and cannot be read tells neither
+				// current nor outdated.
+				unreadable = true
+			}
 			continue
 		}
 		there++
@@ -428,6 +455,8 @@ func (p agentPlugin) state() string {
 		}
 	}
 	switch {
+	case unreadable:
+		return "unreadable"
 	case same == len(p.files):
 		return "current"
 	case there == 0:

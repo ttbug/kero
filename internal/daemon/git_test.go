@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,5 +183,79 @@ func TestRevertPutsBackTheMode(t *testing.T) {
 	changed, err := r.Changed(context.Background(), "HEAD", "a.txt")
 	if err != nil || changed {
 		t.Errorf("the file after the revert: changed=%v, %v", changed, err)
+	}
+}
+
+// A status that cannot be read is said, as the worktree's own finding is:
+// the numbers the pane shows stay as they were, and nothing would say why
+// they never move again. A directory that holds no worktree is not a
+// failure to say.
+func TestGitStatusThatFailedIsSaid(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	var logs bytes.Buffer
+	p := testPane(t)
+	d := p.d
+	d.log = log.New(&logs, "", 0)
+	g := newGitFollow(d)
+
+	// A folder with no worktree of its own: the common case.
+	plain := realPath(t, t.TempDir())
+	rs := &repoStatus{repo: git.Repo{Root: plain}}
+	g.refresh(rs, rs.repo.Stamp(""), time.Now())
+	if !rs.failed {
+		t.Fatal("a folder with no worktree was read as a status")
+	}
+	if logs.Len() != 0 {
+		t.Errorf("a folder with no worktree was said: %q", logs.String())
+	}
+
+	// One that is there but cannot be read is said, with its root.
+	notADir := filepath.Join(plain, "not-a-folder")
+	if err := os.WriteFile(notADir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rs = &repoStatus{repo: git.Repo{Root: notADir}}
+	g.refresh(rs, rs.repo.Stamp(""), time.Now())
+	if !rs.failed {
+		t.Fatal("a worktree that could not be read was read as a status")
+	}
+	if !strings.Contains(logs.String(), notADir) {
+		t.Errorf("a status that failed was not said: %q", logs.String())
+	}
+}
+
+// Reverting a hunk of a renamed file writes to its current name.
+func TestRevertHunkOfRenamedFile(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	p := testPane(t)
+	d := p.d
+	d.log = log.New(io.Discard, "", 0)
+	d.panes = map[string]*pane{"p": p}
+	repo := realPath(t, t.TempDir())
+	gitIn(t, repo, "init", "-q")
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one\n"), 0o644)
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-q", "-m", "first")
+	p.info.Dir = repo
+	// The agent renamed the file.
+	if err := os.Rename(filepath.Join(repo, "a.txt"), filepath.Join(repo, "b.txt")); err != nil {
+		t.Fatal(err)
+	}
+	txt, err := d.gitText(proto.GitParams{Pane: "p", Base: git.BaseHead, Path: "b.txt", OldPath: "a.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.gitRevert(proto.GitWriteParams{Pane: "p", Base: git.BaseHead, Path: "b.txt", OldPath: "a.txt", Hash: txt.Hash, Text: txt.Old}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(repo, "b.txt")); err != nil || string(b) != "one\n" {
+		t.Errorf("current file: %q, %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "a.txt")); !os.IsNotExist(err) {
+		t.Errorf("old name unexpectedly restored: %v", err)
 	}
 }

@@ -1327,15 +1327,14 @@ func (a *App) agentsPage(c *ui.Context, pal *palette) {
 				label = locales.CommonReinstall()
 			}
 			if button(c, "cli", label, "", a.ss.cliPath == "", pal) {
-				a.installCLI()
-				time.AfterFunc(1500*time.Millisecond, func() { a.update(a.refreshAgents) })
+				a.installCLI(true)
 			}
 		})
 	})
 	settingsGroup(c, pal, locales.SetSkills(), locales.SetSkillsDetail(), func() {
 		for _, st := range cli.SkillStates() {
 			name := map[string]string{"claude": "Claude Code", "codebuddy": "CodeBuddy Code", "agents": "Codex, OpenCode, Pi"}[st.Agent]
-			detail := map[string]string{"current": locales.SetSkillInstalled(), "outdated": locales.SetSkillOutdated(), "missing": locales.SetSkillMissing()}[st.State] + " · " + proto.ShortDir(st.Dir)
+			detail := map[string]string{"current": locales.SetSkillInstalled(), "outdated": locales.SetSkillOutdated(), "missing": locales.SetSkillMissing(), "unreadable": locales.SetSkillUnreadable()}[st.State] + " · " + proto.ShortDir(st.Dir)
 			settingRow(c, pal, name, detail, func() {
 				agent := st.Agent
 				if st.State != "missing" && button(c, "rm-"+agent, locales.CommonRemove(), "", false, pal) {
@@ -1677,11 +1676,15 @@ func (a *App) setShortcut(id, accel string) {
 		sc[k] = v
 	}
 	a.ss.notice = ""
+	taken := ""
 	if accel != "" {
 		for _, other := range actions.All {
 			if other.ID != id && strings.EqualFold(actions.Keys(other, sc), accel) {
-				sc[other.ID] = ""
-				a.ss.notice = locales.SetShortcutTaken(actions.Glyphs(accel), strings.TrimSuffix(actionTitle(other.ID), "…"))
+				// The other action loses the keys: its own binding goes,
+				// and it falls back to its default — which is none of its
+				// own when the keys it had by default are the ones taken.
+				delete(sc, other.ID)
+				taken = other.ID
 			}
 		}
 	}
@@ -1695,6 +1698,14 @@ func (a *App) setShortcut(id, accel string) {
 		sc = nil
 	}
 	a.set.Shortcuts = sc
+	// The other action says it has none now, when it has none: the keys
+	// it had by default are the ones taken.
+	if taken != "" {
+		other, _ := actions.Find(taken)
+		if actions.Keys(other, a.set.Shortcuts) == "" {
+			a.ss.notice = locales.SetShortcutTaken(actions.Glyphs(accel), strings.TrimSuffix(actionTitle(other.ID), "…"))
+		}
+	}
 }
 
 // keyNames are the keys a shortcut takes, by their accelerator names.

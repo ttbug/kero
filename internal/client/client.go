@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -77,7 +78,15 @@ func StartDaemon() error {
 	// manager starts the service's for, again and again. But Task
 	// Scheduler's, which starts none while no one is logged on to the
 	// machine, and never again: a kerod of its own then.
-	if service.Installed() {
+	installed, err := service.CheckInstalled()
+	if err != nil {
+		// A service that cannot be asked is treated as none: a kerod of
+		// the app's own still starts, which the daemon lock keeps apart
+		// from the service's, should one be running after all. Why the
+		// check failed is said, in the log.
+		log.Printf("checking kerod's service: %v", err)
+	}
+	if installed {
 		err := service.Start()
 		if err == nil {
 			return nil
@@ -144,15 +153,23 @@ func handshake(conn net.Conn, hello proto.Hello) (proto.Welcome, *bufio.Reader, 
 }
 
 // DaemonPID returns the pid of the daemon running, whatever its version,
-// or 0.
-func DaemonPID() int {
+// and 0 when no daemon answers the socket. An error says that the socket
+// answered but no hello came: a daemon is there, and it did not say hello.
+func DaemonPID() (int, error) {
 	conn, err := dial(true)
 	if err != nil {
-		return 0
+		// No daemon answers the socket: it is not there, or nothing
+		// listens on it.
+		return 0, nil
 	}
 	defer conn.Close()
-	w, _, _ := handshake(conn, proto.Hello{Kind: "control"})
-	return w.PID
+	w, _, err := handshake(conn, proto.Hello{Kind: "control"})
+	if err != nil && w.PID == 0 {
+		// The socket was answered, but no hello came: the daemon is
+		// there, and it did not say hello.
+		return 0, err
+	}
+	return w.PID, nil
 }
 
 // Client is a control connection.

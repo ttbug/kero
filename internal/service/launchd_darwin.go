@@ -75,7 +75,12 @@ func Install(exe string, stop func() error) error {
 		return err
 	}
 	if stop != nil {
-		stop()
+		// A daemon that did not stop keeps running, and the agent's
+		// kerod cannot take its place: the install did not work, and
+		// says so — as systemd's install says it too.
+		if err := stop(); err != nil {
+			return err
+		}
 	}
 	return launchctl("bootstrap", domain(), file())
 }
@@ -84,12 +89,27 @@ func Install(exe string, stop func() error) error {
 // logged in.
 func EnableLinger() error { return nil }
 
-// Uninstall stops and removes the agent.
+// Uninstall stops and removes the agent. An agent launchd keeps, as one
+// whose bootout was denied — over SSH, with no session to unload from —
+// is not said gone with its property list taken away: the uninstall did
+// not happen, and says so, and the plist stays — as systemd's uninstall
+// keeps the unit it could not stop. Whether the agent is still loaded is
+// asked, not read from launchctl's words, which the machine may say in
+// its own language.
 func Uninstall() error {
-	if !Installed() {
-		return nil
+	// A plist that is not there is none; one that is there but cannot be
+	// read is not known to be none — systemd's uninstall rule.
+	if _, err := os.Stat(file()); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	}
-	launchctl("bootout", domain()+"/"+label())
+	if launchctl("print", domain()+"/"+label()) == nil {
+		if err := launchctl("bootout", domain()+"/"+label()); err != nil {
+			return err
+		}
+	}
 	return os.Remove(file())
 }
 

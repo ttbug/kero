@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -172,8 +173,29 @@ func (s *pane) start(command []string, env []string) error {
 		env = append(env[:len(env):len(env)], zshEnv(zdot)...)
 	}
 	dir := s.info.Dir
-	if st, err := os.Stat(dir); dir == "" || err != nil || !st.IsDir() {
+	if dir == "" {
 		dir = proto.Home()
+	} else {
+		st, err := os.Stat(dir)
+		switch {
+		case err != nil && !os.IsNotExist(err):
+			// It is there but cannot be looked into — no permission, a
+			// parent of a kind that is no folder — which is not "no
+			// directory": the look says what it is, and a shell in the
+			// home directory would run the user's commands in the
+			// wrong place.
+			return err
+		case err == nil && !st.IsDir():
+			// A file sits where the directory was: something is there,
+			// and it is no folder, which is not "no directory" — a shell
+			// in the home directory would run the user's commands in the
+			// wrong place.
+			return fmt.Errorf("no directory %s", dir)
+		case err != nil:
+			// The directory is gone: the pane starts in the home
+			// directory, as it did before.
+			dir = proto.Home()
+		}
 	}
 	proc, err := startPTY(ptyOptions{
 		Path: shell, Args: args, Dir: dir,
@@ -531,8 +553,13 @@ func (s *pane) screen() string {
 	return strings.Join(lines[max(0, len(lines)-s.info.Rows):], "\n") + "\n"
 }
 
+// errNoShell: the pane's shell ended, so input to it goes nowhere — a
+// pane that exited stays until the user closes or restarts it, and
+// typing into it is no failure, only nothing to write to.
+var errNoShell = errors.New("the pane's shell has ended")
+
 // input writes what the user typed to the program.
-func (s *pane) input(p []byte) {
+func (s *pane) input(p []byte) error {
 	s.mu.Lock()
 	proc := s.proc
 	changed := false
@@ -570,12 +597,17 @@ func (s *pane) input(p []byte) {
 		changed = true
 	}
 	s.mu.Unlock()
-	if proc != nil {
-		proc.Write(p)
+	if proc == nil {
+		if changed {
+			s.d.changed()
+		}
+		return errNoShell
 	}
+	_, err := proc.Write(p)
 	if changed {
 		s.d.changed()
 	}
+	return err
 }
 
 // setPage keeps the page a browser pane shows, as the app told it.
