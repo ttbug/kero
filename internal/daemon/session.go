@@ -515,19 +515,28 @@ func (s *pane) tick(now time.Time) bool {
 	changed := false
 	member, proc, agent, runtime, inferred := s.foregroundProgramLocked()
 	if proc == "" && s.info.Process != "" {
-		// The program ended: its live reports go with it, and an agent's
-		// session is no more to resume.
+		// The program ended: its live reports go with it. While a restored
+		// pane is still running shell startup (awaiting && Agent == ""), a
+		// transient init helper exiting must not wipe the restored session.
 		s.dropLive()
 		s.progress = ""
+		if s.info.Agent != "" || !s.awaiting {
+			if s.info.AgentSession != nil {
+				s.d.noteEnded(s)
+				s.info.AgentSession = nil
+				s.d.save()
+			}
+			if s.resetAgentTitleLocked() {
+				changed = true
+			}
+		}
+	} else if proc == "" && !s.awaiting && (s.ended || s.info.CommandExit != nil) {
 		if s.info.AgentSession != nil {
 			s.d.noteEnded(s)
 			s.info.AgentSession = nil
+			changed = true
 			s.d.save()
 		}
-		if s.resetAgentTitleLocked() {
-			changed = true
-		}
-	} else if proc == "" && s.info.AgentTitle != "" && !s.awaiting && (s.ended || s.info.CommandExit != nil) {
 		if s.resetAgentTitleLocked() {
 			changed = true
 		}

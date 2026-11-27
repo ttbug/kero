@@ -150,6 +150,7 @@
   "sessionRename": "名前を変更",
   "sessionMarkRead": "既読にする",
   "sessionMoveToProject": "プロジェクトへ移動",
+  "sessionHandOff": "別のエージェントに引き継ぐ",
   "sessionCopyId": "セッション ID をコピー",
   "sessionCopyDirectory": "ディレクトリをコピー",
   "sessionRevealIn": "{app}で表示",

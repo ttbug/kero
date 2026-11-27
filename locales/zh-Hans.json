@@ -150,6 +150,7 @@
   "sessionRename": "重命名",
   "sessionMarkRead": "标记为已读",
   "sessionMoveToProject": "移到项目",
+  "sessionHandOff": "转交给",
   "sessionCopyId": "拷贝会话 ID",
   "sessionCopyDirectory": "拷贝目录",
   "sessionRevealIn": "在{app}中显示",

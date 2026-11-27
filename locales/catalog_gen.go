@@ -1424,6 +1424,16 @@ func (msgs Messages) SessionMoveToProject() string {
 	return Catalog.Format(msgs.locale, "sessionMoveToProject", nil)
 }
 
+// SessionHandOff says "Hand Off To"
+// in the language the app shows.
+func SessionHandOff() string { return In(i18n.Locale()).SessionHandOff() }
+
+// SessionHandOff says "Hand Off To"
+// in the language of msgs.
+func (msgs Messages) SessionHandOff() string {
+	return Catalog.Format(msgs.locale, "sessionHandOff", nil)
+}
+
 // SessionCopyId says "Copy Session ID"
 // in the language the app shows.
 func SessionCopyId() string { return In(i18n.Locale()).SessionCopyId() }

@@ -1254,6 +1254,18 @@ func (a *App) sessionMenu(m *ui.Menu, s *proto.Session) {
 			}
 		}
 	})
+	if from := handoffFrom(s); from != "" {
+		m.Submenu(locales.SessionHandOff(), func(m *ui.Menu) {
+			for _, to := range proto.HandoffAgents {
+				if to == from {
+					continue
+				}
+				if m.Item(proto.AgentNames[to]).Chosen() {
+					a.defer_(func() { a.handoff(id, to) })
+				}
+			}
+		})
+	}
 	m.Separator()
 	if m.Item(locales.SessionCopyId()).Chosen() {
 		a.copyText = id

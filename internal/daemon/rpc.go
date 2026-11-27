@@ -393,18 +393,22 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 			return nil, fmt.Errorf("no pane runs %s session %q", p.Agent, p.Session)
 		}
 		pn.mu.Lock()
-		if pn.info.AgentSession != nil && *pn.info.AgentSession != *as ||
-			pn.info.AgentSession == nil && (pn.info.Agent != as.Agent || pn.agentTitleKind != agentTitlePrompt) {
-			pn.resetAgentTitleLocked()
+		unchanged := pn.info.AgentSession != nil && *pn.info.AgentSession == *as
+		if !unchanged {
+			if pn.info.AgentSession != nil || pn.info.Agent != as.Agent || pn.agentTitleKind != agentTitlePrompt {
+				pn.resetAgentTitleLocked()
+			}
+			pn.info.AgentSession = as
 		}
-		pn.info.AgentSession = as
 		id := pn.info.ID
 		pn.mu.Unlock()
-		d.changed()
 		d.mu.Lock()
 		sid := pn.sid
 		d.mu.Unlock()
-		d.noteConversations()
+		if !unchanged {
+			d.changed()
+			d.noteConversations()
+		}
 		return proto.AgentSessionResult{Pane: id, Session: sid, Away: away}, nil
 
 	case "conversations":
@@ -416,6 +420,13 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 			return nil, err
 		}
 		return d.resumeConversation(p)
+
+	case "handoff":
+		var p proto.HandoffParams
+		if err := decode(&p); err != nil {
+			return nil, err
+		}
+		return d.handoff(p)
 
 	case "conversation.forget":
 		var p proto.ConversationParams

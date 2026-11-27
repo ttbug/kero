@@ -205,6 +205,7 @@
   "sessionRename": "Rename",
   "sessionMarkRead": "Mark as Read",
   "sessionMoveToProject": "Move to Project",
+  "sessionHandOff": "Hand Off To",
   "sessionCopyId": "Copy Session ID",
   "sessionCopyDirectory": "Copy Directory",
   "sessionRevealIn": "Reveal in {app}",

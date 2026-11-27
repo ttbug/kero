@@ -300,8 +300,15 @@ func SyncSkill() {
 		}
 	}
 	for _, it := range agentHooks("agents") {
-		if p, ok := it.(agentPlugin); ok && p.ours() && p.state() == "outdated" {
-			p.install()
+		switch h := it.(type) {
+		case agentPlugin:
+			if h.ours() && h.state() == "outdated" {
+				h.install()
+			}
+		case antigravityHook:
+			if h.oursCurrent() && h.state() == "outdated" {
+				h.install()
+			}
 		}
 	}
 }

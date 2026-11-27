@@ -42,6 +42,7 @@ func runHook(args []string, stdin io.Reader, stdout io.Writer) error {
 		Event          string   `json:"hook_event_name"`
 		EventCamel     string   `json:"hookEventName"`
 		AgentID        string   `json:"agent_id"`       // set for Claude Code's subagents
+		AgentIDCamel   string   `json:"agentId"`        // set for Antigravity's subagents
 		Session        string   `json:"session_id"`     // the agent's own
 		ConversationID string   `json:"conversationId"` // Antigravity's own
 		Cwd            string   `json:"cwd"`
@@ -52,6 +53,10 @@ func runHook(args []string, stdin io.Reader, stdout io.Writer) error {
 	event := in.Event
 	if event == "" {
 		event = in.EventCamel
+	}
+	agentID := in.AgentID
+	if agentID == "" {
+		agentID = in.AgentIDCamel
 	}
 	session := in.Session
 	if session == "" {
@@ -68,7 +73,22 @@ func runHook(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		return nil
 	}
-	if event != "SessionStart" || in.AgentID != "" {
+	isSessionStart := event == "SessionStart"
+	isAntigravityPre := agent == "antigravity" && event == "PreInvocation"
+	if (!isSessionStart && !isAntigravityPre) || agentID != "" {
+		return emptyOut()
+	}
+	if isAntigravityPre {
+		if pane == "" || session == "" {
+			return emptyOut()
+		}
+		c, err := client.Connect(true)
+		if err != nil {
+			return emptyOut()
+		}
+		defer c.Close()
+		var r proto.AgentSessionResult
+		_ = c.Call("pane.agentSession", proto.AgentSessionParams{PID: os.Getpid(), Agent: agent, Session: session, Dir: dir}, &r)
 		return emptyOut()
 	}
 	if pane == "" && (agent != "codex" || session == "") {
@@ -446,11 +466,19 @@ func (h agentHook) edit(add bool) error {
 	return writeFileAtomic(h.file, pretty.Bytes())
 }
 
-// antigravityHook manages Kero's SessionStart hook in Antigravity's
-// ~/.gemini/config/hooks.json, whose top-level keys name hooks and hold
-// flat SessionStart handler arrays.
+// antigravityHook manages Kero's SessionStart and PreInvocation hooks in
+// Antigravity's ~/.gemini/config/hooks.json, whose top-level keys name hooks
+// and hold flat event handler arrays.
 type antigravityHook struct {
 	file string
+}
+
+var antigravityHookEvents = []string{"SessionStart", "PreInvocation"}
+
+type antigravityHookMatch struct {
+	event    string
+	command  string
+	disabled bool
 }
 
 func (h antigravityHook) name() string { return "antigravity" }
@@ -474,40 +502,82 @@ func (h antigravityHook) state() string {
 	if err != nil {
 		return "unreadable"
 	}
-	state := "missing"
-	if err := h.each(root, func(command string) {
-		if command == h.command() {
-			state = "current"
-		} else if state == "missing" {
-			state = "outdated"
-		}
-	}); err != nil {
+	matches, err := h.scan(root)
+	if err != nil {
 		return "unreadable"
 	}
-	return state
+	if len(matches) == 0 {
+		return "missing"
+	}
+	want := h.command()
+	for _, ev := range antigravityHookEvents {
+		if !slices.ContainsFunc(matches, func(m antigravityHookMatch) bool {
+			return m.event == ev && !m.disabled && m.command == want
+		}) {
+			return "outdated"
+		}
+	}
+	return "current"
 }
 
-func (h antigravityHook) each(root object, fn func(command string)) error {
+// oursCurrent reports whether hooks.json already has an enabled handler
+// pointing at this Kero's command, so SyncSkill can upgrade legacy installs
+// without adopting another Kero's or re-enabling a disabled hook.
+func (h antigravityHook) oursCurrent() bool {
+	b, err := os.ReadFile(h.file)
+	if err != nil {
+		return false
+	}
+	root, err := parseObject(b)
+	if err != nil {
+		return false
+	}
+	matches, err := h.scan(root)
+	if err != nil {
+		return false
+	}
+	want := h.command()
+	return slices.ContainsFunc(matches, func(m antigravityHookMatch) bool {
+		return !m.disabled && m.command == want
+	})
+}
+
+func (h antigravityHook) scan(root object) ([]antigravityHookMatch, error) {
+	var matches []antigravityHookMatch
 	for _, m := range root {
 		spec, err := parseObject(m.Val)
 		if err != nil {
-			return fmt.Errorf("%s: %s: %w", proto.ShortDir(h.file), m.Key, err)
+			return nil, fmt.Errorf("%s: %s: %w", proto.ShortDir(h.file), m.Key, err)
 		}
-		raw := spec.get("SessionStart")
-		if raw == nil {
-			continue
+		disabled := false
+		if raw := spec.get("enabled"); raw != nil {
+			var enabled bool
+			if err := json.Unmarshal(raw, &enabled); err != nil {
+				return nil, fmt.Errorf("%s: %s.enabled: %w", proto.ShortDir(h.file), m.Key, err)
+			}
+			disabled = !enabled
 		}
-		var handlers []struct{ Type, Command string }
-		if err := json.Unmarshal(raw, &handlers); err != nil {
-			return fmt.Errorf("%s: %s.SessionStart: %w", proto.ShortDir(h.file), m.Key, err)
-		}
-		for _, hd := range handlers {
-			if (hd.Type == "" || hd.Type == "command") && h.ours(hd.Command) {
-				fn(hd.Command)
+		for _, ev := range antigravityHookEvents {
+			raw := spec.get(ev)
+			if raw == nil {
+				continue
+			}
+			var handlers []struct{ Type, Command string }
+			if err := json.Unmarshal(raw, &handlers); err != nil {
+				return nil, fmt.Errorf("%s: %s.%s: %w", proto.ShortDir(h.file), m.Key, ev, err)
+			}
+			for _, hd := range handlers {
+				if (hd.Type == "" || hd.Type == "command") && h.ours(hd.Command) {
+					matches = append(matches, antigravityHookMatch{
+						event:    ev,
+						command:  hd.Command,
+						disabled: disabled,
+					})
+				}
 			}
 		}
 	}
-	return nil
+	return matches, nil
 }
 
 func (h antigravityHook) install() error {
@@ -533,21 +603,37 @@ func (h antigravityHook) edit(add bool) error {
 			return fmt.Errorf("%s: %w", proto.ShortDir(h.file), err)
 		}
 	}
-	n, exact := 0, false
-	if err := h.each(root, func(command string) {
-		n++
-		exact = exact || command == h.command()
-	}); err != nil {
+	matches, err := h.scan(root)
+	if err != nil {
 		return err
 	}
-	if add && n == 1 && exact || !add && n == 0 {
+	if !add && len(matches) == 0 {
 		return nil
+	}
+	if add && len(matches) == len(antigravityHookEvents) {
+		want := h.command()
+		exactAll := true
+		for _, ev := range antigravityHookEvents {
+			if !slices.ContainsFunc(matches, func(m antigravityHookMatch) bool {
+				return m.event == ev && !m.disabled && m.command == want
+			}) {
+				exactAll = false
+				break
+			}
+		}
+		if exactAll {
+			return nil
+		}
 	}
 	kept := root[:0]
 	for _, m := range root {
 		spec, _ := parseObject(m.Val)
 		changed := false
-		if raw := spec.get("SessionStart"); raw != nil {
+		for _, ev := range antigravityHookEvents {
+			raw := spec.get(ev)
+			if raw == nil {
+				continue
+			}
 			var handlers []json.RawMessage
 			json.Unmarshal(raw, &handlers)
 			orig := len(handlers)
@@ -559,12 +645,14 @@ func (h antigravityHook) edit(add bool) error {
 			if len(handlers) != orig {
 				changed = true
 				if len(handlers) > 0 {
-					spec = spec.set("SessionStart", marshal(handlers))
+					spec = spec.set(ev, marshal(handlers))
 				} else {
-					spec = spec.del("SessionStart")
+					spec = spec.del(ev)
 				}
-				m.Val = spec.marshal()
 			}
+		}
+		if changed {
+			m.Val = spec.marshal()
 		}
 		if changed && len(spec) == 0 {
 			continue
@@ -580,18 +668,29 @@ func (h antigravityHook) edit(add bool) error {
 				continue
 			}
 			spec, _ := parseObject(m.Val)
-			var handlers []json.RawMessage
-			if raw := spec.get("SessionStart"); raw != nil {
-				json.Unmarshal(raw, &handlers)
+			if raw := spec.get("enabled"); raw != nil {
+				var enabled bool
+				if json.Unmarshal(raw, &enabled) == nil && !enabled {
+					spec = spec.del("enabled")
+				}
 			}
-			handlers = append(handlers, handler.marshal())
-			spec = spec.set("SessionStart", marshal(handlers))
+			for _, ev := range antigravityHookEvents {
+				var handlers []json.RawMessage
+				if raw := spec.get(ev); raw != nil {
+					json.Unmarshal(raw, &handlers)
+				}
+				handlers = append(handlers, handler.marshal())
+				spec = spec.set(ev, marshal(handlers))
+			}
 			root[i].Val = spec.marshal()
 			updated = true
 			break
 		}
 		if !updated {
-			spec := object{{"SessionStart", marshal([]object{handler})}}
+			spec := object{}
+			for _, ev := range antigravityHookEvents {
+				spec = spec.set(ev, marshal([]object{handler}))
+			}
 			root = append(root, member{Key: "kero", Val: spec.marshal()})
 		}
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -293,5 +294,51 @@ func TestAntigravitySkillAndHook(t *testing.T) {
 	}
 	if hooks[0].state() != "current" {
 		t.Fatalf("hook state after setup = %s, want current", hooks[0].state())
+	}
+
+	// SyncSkill leaves missing hooks.json alone.
+	if err := os.Remove(wantPath); err != nil {
+		t.Fatal(err)
+	}
+	SyncSkill()
+	if _, err := os.Stat(wantPath); !os.IsNotExist(err) {
+		t.Fatalf("SyncSkill created missing hooks.json: %v", err)
+	}
+
+	// SyncSkill leaves another Kero's hook alone.
+	otherHook := `{"kero":{"SessionStart":[{"type":"command","command":"'/elsewhere/kero-dev/bin/kero' hook antigravity","timeout":10}]}}` + "\n"
+	if err := os.WriteFile(wantPath, []byte(otherHook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	SyncSkill()
+	if got := read(t, wantPath); got != otherHook {
+		t.Fatalf("SyncSkill touched another Kero's hook:\n%s", got)
+	}
+
+	// SyncSkill leaves disabled hooks alone even if command matches this Kero.
+	cmd := (antigravityHook{wantPath}).command()
+	disabledHook := fmt.Sprintf(`{"kero":{"enabled":false,"SessionStart":[{"type":"command","command":%q,"timeout":10}]}}`+"\n", cmd)
+	if err := os.WriteFile(wantPath, []byte(disabledHook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	SyncSkill()
+	if got := read(t, wantPath); got != disabledHook {
+		t.Fatalf("SyncSkill re-enabled disabled hook:\n%s", got)
+	}
+
+	// SyncSkill upgrades legacy SessionStart-only hook owned by this Kero to include PreInvocation.
+	legacyHook := fmt.Sprintf(`{"kero":{"SessionStart":[{"type":"command","command":%q,"timeout":10}]}}`, cmd)
+	if err := os.WriteFile(wantPath, []byte(legacyHook), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hooks[0].state() != "outdated" {
+		t.Fatalf("legacy hook state = %s, want outdated", hooks[0].state())
+	}
+	SyncSkill()
+	if hooks[0].state() != "current" {
+		t.Fatalf("hook state after SyncSkill upgrade = %s, want current", hooks[0].state())
+	}
+	if got := read(t, wantPath); !strings.Contains(got, `"PreInvocation"`) {
+		t.Fatalf("SyncSkill upgrade missing PreInvocation:\n%s", got)
 	}
 }

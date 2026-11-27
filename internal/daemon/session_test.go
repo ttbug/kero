@@ -471,8 +471,8 @@ func TestTickClearsStaleRestoredAgentTitle(t *testing.T) {
 		t.Fatal("tick did not report change when clearing ended restored title")
 	}
 	s.mu.Lock()
-	if s.info.AgentTitle != "" || s.agentTitleKind != agentTitleNone {
-		t.Fatalf("ended restored pane kept AgentTitle = (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
+	if s.info.AgentTitle != "" || s.agentTitleKind != agentTitleNone || s.info.AgentSession != nil {
+		t.Fatalf("ended restored pane kept AgentTitle/AgentSession = (%q, %d, %+v)", s.info.AgentTitle, s.agentTitleKind, s.info.AgentSession)
 	}
 	s.mu.Unlock()
 
@@ -630,6 +630,21 @@ func TestPaneAgentSessionTitleRetention(t *testing.T) {
 	if p.info.AgentTitle != "首条提问标题" || p.agentTitleKind != agentTitlePrompt {
 		p.mu.Unlock()
 		t.Fatalf("first SessionStart cleared prompt title: (%q, %d)", p.info.AgentTitle, p.agentTitleKind)
+	}
+	p.mu.Unlock()
+
+	// Repeating the same agent session (e.g. PreInvocation) is a no-op.
+	for len(d.changeCh) > 0 {
+		<-d.changeCh
+	}
+	call("antigravity", "conv-1")
+	if len(d.changeCh) != 0 {
+		t.Fatal("idempotent pane.agentSession signaled changeCh")
+	}
+	p.mu.Lock()
+	if p.info.AgentTitle != "首条提问标题" || p.agentTitleKind != agentTitlePrompt {
+		p.mu.Unlock()
+		t.Fatalf("idempotent pane.agentSession altered prompt title: (%q, %d)", p.info.AgentTitle, p.agentTitleKind)
 	}
 	p.mu.Unlock()
 
@@ -827,5 +842,46 @@ func TestPaneAgentSessionLogsUnmatched(t *testing.T) {
 	}
 	if strings.Contains(out, "secret-conv-id") || strings.Contains(out, "/tmp/nope") {
 		t.Fatalf("log leaked session ID or path: %q", out)
+	}
+}
+
+func TestTickPreservesRestoredAgentDuringShellInit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX sh")
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not installed")
+	}
+	s := testPane(t)
+	proc, err := startPTY(ptyOptions{
+		Path: shell, Args: []string{"sh", "-c", "sleep 30"},
+		Dir: t.TempDir(), Env: []string{"TERM=xterm-256color"},
+		Cols: s.info.Cols, Rows: s.info.Rows,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { proc.Kill() })
+	s.mu.Lock()
+	s.proc = proc
+	s.shellPID = proc.PID()
+	s.awaiting = true
+	s.info.Process = "conda"
+	s.info.Agent = ""
+	s.info.AgentSession = &proto.AgentSession{Agent: "antigravity", ID: "conv-1"}
+	s.info.AgentTitle = "任务标题"
+	s.agentTitleKind = agentTitlePrompt
+	s.mu.Unlock()
+
+	s.tick(time.Now())
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.info.AgentSession == nil || s.info.AgentSession.Agent != "antigravity" || s.info.AgentSession.ID != "conv-1" {
+		t.Fatalf("shell init helper cleared restored AgentSession: %+v", s.info.AgentSession)
+	}
+	if s.info.AgentTitle != "任务标题" || s.agentTitleKind != agentTitlePrompt {
+		t.Fatalf("shell init helper cleared restored AgentTitle: (%q, %d)", s.info.AgentTitle, s.agentTitleKind)
 	}
 }

@@ -323,7 +323,8 @@ func TestAntigravityHookInstallKeepsSettings(t *testing.T) {
 	if i, j := strings.Index(got, `"tty7"`), strings.Index(got, `"kero"`); !(i >= 0 && i < j) {
 		t.Fatalf("keys out of order:\n%s", got)
 	}
-	if !strings.Contains(got, "tty7-app") || !strings.Contains(got, "hook antigravity") {
+	if !strings.Contains(got, "tty7-app") || !strings.Contains(got, "hook antigravity") ||
+		!strings.Contains(got, `"SessionStart"`) || !strings.Contains(got, `"PreInvocation"`) {
 		t.Fatalf("missing expected hook contents:\n%s", got)
 	}
 	// Re-installing is idempotent.
@@ -333,7 +334,7 @@ func TestAntigravityHookInstallKeepsSettings(t *testing.T) {
 	if again := read(t, h.file); again != got {
 		t.Fatalf("installing again changed it:\n%s", again)
 	}
-	// Removing takes only kero's entry out and leaves tty7 intact.
+	// Removing takes only kero's entries out and leaves tty7 intact.
 	if err := h.remove(); err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +346,7 @@ func TestAntigravityHookInstallKeepsSettings(t *testing.T) {
 		t.Fatalf("state %s after remove, want missing", h.state())
 	}
 
-	// Outdated hook is detected and replaced.
+	// Outdated hook (older path) is detected and replaced.
 	outdated := `{"kero":{"SessionStart":[{"type":"command","command":"'/old/kero/bin/kero' hook antigravity","timeout":10}]}}`
 	if err := os.WriteFile(h.file, []byte(outdated), 0o600); err != nil {
 		t.Fatal(err)
@@ -360,21 +361,73 @@ func TestAntigravityHookInstallKeepsSettings(t *testing.T) {
 		t.Fatalf("after replacing outdated: %s", st)
 	}
 
-	// Unreadable / invalid JSON is reported and refused.
-	badFile := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(badFile, []byte(`{"kero":{"SessionStart":"not-an-array"}}`), 0o600); err != nil {
+	// Legacy SessionStart-only hook with current command is outdated and upgraded to include PreInvocation.
+	legacyOnly := fmt.Sprintf(`{"kero":{"SessionStart":[{"type":"command","command":%q,"timeout":10}]}}`, h.command())
+	if err := os.WriteFile(h.file, []byte(legacyOnly), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	badHook := antigravityHook{badFile}
-	if st := badHook.state(); st != "unreadable" {
-		t.Fatalf("bad SessionStart state = %s, want unreadable", st)
+	if st := h.state(); st != "outdated" {
+		t.Fatalf("legacy SessionStart-only state = %s, want outdated", st)
 	}
-	if err := badHook.install(); err == nil {
-		t.Fatal("installed into unreadable antigravity hooks.json")
+	if !h.oursCurrent() {
+		t.Fatal("oursCurrent = false for legacy SessionStart-only hook, want true")
+	}
+	if err := h.install(); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.state(); st != "current" {
+		t.Fatalf("after upgrading legacy SessionStart-only hook: %s", st)
+	}
+	upgraded := read(t, h.file)
+	if !strings.Contains(upgraded, `"SessionStart"`) || !strings.Contains(upgraded, `"PreInvocation"`) {
+		t.Fatalf("upgraded hook missing events:\n%s", upgraded)
+	}
+
+	// Disabled kero entry is outdated and re-enabled on explicit install.
+	disabled := fmt.Sprintf(`{"kero":{"enabled":false,"SessionStart":[{"type":"command","command":%q,"timeout":10}],"PreInvocation":[{"type":"command","command":%q,"timeout":10}]}}`, h.command(), h.command())
+	if err := os.WriteFile(h.file, []byte(disabled), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.state(); st != "outdated" {
+		t.Fatalf("disabled hook state = %s, want outdated", st)
+	}
+	if h.oursCurrent() {
+		t.Fatal("oursCurrent = true for disabled hook, want false")
+	}
+	if err := h.install(); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.state(); st != "current" {
+		t.Fatalf("after re-enabling disabled hook: %s", st)
+	}
+	if gotEnabled := read(t, h.file); strings.Contains(gotEnabled, `"enabled"`) {
+		t.Fatalf("explicit install kept disabled enabled flag:\n%s", gotEnabled)
+	}
+
+	// Unreadable / invalid JSON fields are reported and refused.
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"bad SessionStart", `{"kero":{"SessionStart":"not-an-array"}}`},
+		{"bad PreInvocation", `{"kero":{"PreInvocation":"not-an-array"}}`},
+		{"bad enabled", `{"kero":{"enabled":"yes","SessionStart":[]}}`},
+	} {
+		badFile := filepath.Join(t.TempDir(), "bad.json")
+		if err := os.WriteFile(badFile, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		badHook := antigravityHook{badFile}
+		if st := badHook.state(); st != "unreadable" {
+			t.Fatalf("%s state = %s, want unreadable", tc.name, st)
+		}
+		if err := badHook.install(); err == nil {
+			t.Fatalf("%s: installed into unreadable antigravity hooks.json", tc.name)
+		}
 	}
 }
 
-func startMockDaemon(t *testing.T, onAgentSession func(proto.AgentSessionParams) (proto.AgentSessionResult, error)) string {
+func startMockDaemon(t *testing.T, onAgentSession func(proto.AgentSessionParams) (proto.AgentSessionResult, error), onMethod ...func(string)) string {
 	t.Helper()
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "kerod.sock")
@@ -428,6 +481,11 @@ func startMockDaemon(t *testing.T, onAgentSession func(proto.AgentSessionParams)
 					}
 					if json.Unmarshal(line, &req) != nil {
 						return
+					}
+					for _, fn := range onMethod {
+						if fn != nil {
+							fn(req.Method)
+						}
 					}
 					switch req.Method {
 					case "pane.agentSession":
@@ -546,5 +604,76 @@ func TestRunHookCodexAppServerAndAntigravity(t *testing.T) {
 	}
 	if len(gotParams) != 1 || gotParams[0].Session != "conv-ws" || gotParams[0].Dir != "/ws/repo" {
 		t.Fatalf("antigravity workspacePaths RPC params = %+v", gotParams)
+	}
+}
+
+func TestRunHookAntigravityPreInvocationAndSubagent(t *testing.T) {
+	t.Setenv("KERO_HOME", t.TempDir())
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	var (
+		mu         sync.Mutex
+		gotParams  []proto.AgentSessionParams
+		gotMethods []string
+	)
+	startMockDaemon(t, func(p proto.AgentSessionParams) (proto.AgentSessionResult, error) {
+		mu.Lock()
+		gotParams = append(gotParams, p)
+		mu.Unlock()
+		return proto.AgentSessionResult{Pane: "p1", Session: "s1"}, nil
+	}, func(method string) {
+		mu.Lock()
+		gotMethods = append(gotMethods, method)
+		mu.Unlock()
+	})
+
+	// 1. PreInvocation outside Kero -> no RPC, outputs "{}\n".
+	t.Setenv("KERO_PANE", "")
+	t.Setenv("KERO_SESSION", "")
+	var out bytes.Buffer
+	if err := runHook([]string{"antigravity"}, strings.NewReader(`{"hookEventName":"PreInvocation","conversationId":"conv-out","workspacePaths":["/ws/repo"]}`), &out); err != nil {
+		t.Fatalf("antigravity PreInvocation outside: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "{}" {
+		t.Fatalf("PreInvocation outside = %q, want {}", out.String())
+	}
+	if len(gotParams) != 0 || len(gotMethods) != 0 {
+		t.Fatalf("PreInvocation outside triggered unexpected RPCs: params=%+v methods=%+v", gotParams, gotMethods)
+	}
+
+	// 2. PreInvocation inside Kero -> reports pane.agentSession, skips rename, outputs "{}\n".
+	t.Setenv("KERO_PANE", "p1")
+	t.Setenv("KERO_SESSION", "s1")
+	out.Reset()
+	if err := runHook([]string{"antigravity"}, strings.NewReader(`{"hookEventName":"PreInvocation","conversationId":"conv-pre","workspacePaths":["/ws/repo"]}`), &out); err != nil {
+		t.Fatalf("antigravity PreInvocation inside: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "{}" {
+		t.Fatalf("PreInvocation inside = %q, want {}", out.String())
+	}
+	if len(gotParams) != 1 || gotParams[0].Agent != "antigravity" || gotParams[0].Session != "conv-pre" || gotParams[0].Dir != "/ws/repo" {
+		t.Fatalf("PreInvocation inside RPC params = %+v", gotParams)
+	}
+	for _, m := range gotMethods {
+		if m == "rename" || m == "state" {
+			t.Fatalf("PreInvocation unexpectedly called %q: %+v", m, gotMethods)
+		}
+	}
+
+	// 3. Antigravity subagents carrying camelCase agentId are ignored on both SessionStart and PreInvocation.
+	gotParams = nil
+	gotMethods = nil
+	for _, ev := range []string{"SessionStart", "PreInvocation"} {
+		out.Reset()
+		payload := fmt.Sprintf(`{"hookEventName":%q,"agentId":"sub-1","conversationId":"conv-sub","cwd":"/repo"}`, ev)
+		if err := runHook([]string{"antigravity"}, strings.NewReader(payload), &out); err != nil {
+			t.Fatalf("antigravity subagent %s: %v", ev, err)
+		}
+		if strings.TrimSpace(out.String()) != "{}" {
+			t.Fatalf("antigravity subagent %s = %q, want {}", ev, out.String())
+		}
+	}
+	if len(gotParams) != 0 || len(gotMethods) != 0 {
+		t.Fatalf("antigravity subagent triggered unexpected RPCs: params=%+v methods=%+v", gotParams, gotMethods)
 	}
 }

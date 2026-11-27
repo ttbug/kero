@@ -301,6 +301,9 @@ func (c *Conversation) Label() string {
 // AgentNames are the coding agents' names as they show them.
 var AgentNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "codebuddy": "CodeBuddy Code", "pi": "Pi", "pig": "PiG", "opencode": "OpenCode", "antigravity": "Antigravity"}
 
+// HandoffAgents are the agents a task can be handed over to, in menu order.
+var HandoffAgents = []string{"claude", "codex", "antigravity", "opencode", "pi", "codebuddy"}
+
 // Session is a row of the sidebar: one task, with its terminals, its
 // panes, side by side. Its Pane fields are those of its lead pane, the
 // one that most needs the user (see Lead), so that a session reads as one.
@@ -1057,6 +1060,15 @@ type (
 		Cols     int    `json:"cols,omitempty"`
 		Rows     int    `json:"rows,omitempty"`
 		Archived bool   `json:"archived,omitempty"`
+	}
+	// HandoffParams hand the agent's task in session ID over to another
+	// agent, Agent ("claude", "codex", ...), in a new session after it, of
+	// Cols and Rows.
+	HandoffParams struct {
+		ID    string `json:"id"`
+		Agent string `json:"agent"`
+		Cols  int    `json:"cols,omitempty"`
+		Rows  int    `json:"rows,omitempty"`
 	}
 	// AgentSessionResult is the pane told of, and its session; Away: the
 	// agent runs under none of kero's shells, and so do its commands.
