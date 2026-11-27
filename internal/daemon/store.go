@@ -329,6 +329,8 @@ func resumeCommandWithReason(a *proto.AgentSession) ([]string, string) {
 		return []string{"codebuddy", "--resume", a.ID}, ""
 	case "codex":
 		return []string{"codex", "resume", a.ID}, ""
+	case "antigravity":
+		return []string{"agy", "--resume", a.ID}, ""
 	case "pi", "omp", "opencode", "pig":
 		return []string{a.Agent, "--session", a.ID}, ""
 	}

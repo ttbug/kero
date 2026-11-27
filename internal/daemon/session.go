@@ -348,19 +348,12 @@ func (s *pane) wake() {
 	s.changed = make(chan struct{})
 }
 
-// tick follows the foreground program and the shell's directory, and ends
-// work that went quiet.
-func (s *pane) tick(now time.Time) bool {
-	s.mu.Lock()
-	if s.closed || s.proc == nil || s.info.Status == proto.Exited {
-		s.mu.Unlock()
-		return false
+func (s *pane) foregroundProgramLocked() (member int, proc, agent, runtime string, inferred *proto.AgentSession) {
+	if s.proc == nil {
+		return 0, "", "", "", nil
 	}
-	changed := false
 	pg := s.proc.Foreground()
 	s.fgPGID = pg
-	proc, agent, runtime := "", "", ""
-	member := 0
 	if pg != 0 && pg != s.shellPID {
 		// A pipeline's leader may go first while the job goes on: the
 		// name then is a member's, not the leader's.
@@ -378,9 +371,149 @@ func (s *pane) tick(now time.Time) bool {
 			}
 			if agent != "" {
 				proc = agent
+				inferred = resumeSessionFromArgs(agent, args)
 			}
 		}
 	}
+	return member, proc, agent, runtime, inferred
+}
+
+// resumeSessionFromArgs extracts an explicit session ID from an agent's
+// command-line arguments (such as `codex resume <id>` or `agy --resume <id>`)
+// so restarts preserve the session even before the agent's next hook fires.
+func resumeSessionFromArgs(agent string, args []string) *proto.AgentSession {
+	if agent == "" || len(args) < 2 {
+		return nil
+	}
+	// When launched via an interpreter or shebang (e.g. `node .../codex.js` or
+	// `/bin/sh .../codex`), skip up to the script argument that identifies the agent.
+	start := 0
+	for i := 0; i < len(args) && i <= 2; i++ {
+		if detectAgent(filepath.Base(args[i]), []string{args[i]}) == agent {
+			start = i
+			break
+		}
+	}
+	rest := args[start+1:]
+	if len(rest) == 0 {
+		return nil
+	}
+	valid := func(id string) *proto.AgentSession {
+		if id == "" || strings.HasPrefix(id, "-") {
+			return nil
+		}
+		as := &proto.AgentSession{Agent: agent, ID: id}
+		if resumeCommand(as) == nil {
+			return nil
+		}
+		return as
+	}
+	flagValue := func(names ...string) string {
+		for i := 0; i < len(rest); i++ {
+			a := rest[i]
+			for _, name := range names {
+				if a == name && i+1 < len(rest) {
+					return rest[i+1]
+				}
+				if v, ok := strings.CutPrefix(a, name+"="); ok {
+					return v
+				}
+			}
+		}
+		return ""
+	}
+	switch agent {
+	case "claude":
+		return valid(flagValue("--resume", "-r", "--session-id"))
+	case "codebuddy":
+		return valid(flagValue("--resume", "-r"))
+	case "antigravity":
+		return valid(flagValue("--resume", "-r", "--conversation"))
+	case "pi", "omp", "opencode", "pig":
+		return valid(flagValue("--session"))
+	case "codex":
+		takesVal := func(flag string) bool {
+			switch flag {
+			case "-c", "--config", "-m", "--model", "-p", "--profile", "-C", "--cd", "-a", "--ask-for-approval", "-s", "--sandbox":
+				return true
+			}
+			return false
+		}
+		i := 0
+		for i < len(rest) {
+			a := rest[i]
+			if a == "--" {
+				i++
+				break
+			}
+			if !strings.HasPrefix(a, "-") {
+				break
+			}
+			if takesVal(a) && i+1 < len(rest) {
+				i += 2
+				continue
+			}
+			i++
+		}
+		if i >= len(rest) || rest[i] != "resume" {
+			return nil
+		}
+		for i++; i < len(rest); i++ {
+			a := rest[i]
+			if a == "--last" {
+				return nil
+			}
+			if a == "--" {
+				if i+1 < len(rest) {
+					return valid(rest[i+1])
+				}
+				return nil
+			}
+			if strings.HasPrefix(a, "-") {
+				if takesVal(a) && i+1 < len(rest) {
+					i++
+				}
+				continue
+			}
+			return valid(a)
+		}
+	}
+	return nil
+}
+
+// probeAgentLocked inspects the foreground process immediately while s.mu is
+// held so a fast SessionStart hook does not miss the 400ms tick window.
+func (s *pane) probeAgentLocked() {
+	if s.closed || s.proc == nil || s.info.Status == proto.Exited || s.info.Agent != "" {
+		return
+	}
+	member, proc, agent, runtime, inferred := s.foregroundProgramLocked()
+	if agent == "" {
+		return
+	}
+	s.info.Process, s.info.Agent, s.info.Runtime = proc, agent, runtime
+	if s.info.AgentSession == nil && inferred != nil {
+		s.info.AgentSession = inferred
+	}
+	s.seen, s.looked = "", false
+	if dir := procCwd(s.shellPID); dir != "" {
+		s.info.Dir = dir
+	}
+	if pdir := procCwd(member); pdir != "" && pdir != s.info.Dir {
+		s.info.ProcessDir = pdir
+	}
+}
+
+// tick follows the foreground program and the shell's directory, and ends
+// work that went quiet.
+func (s *pane) tick(now time.Time) bool {
+	s.mu.Lock()
+	if s.closed || s.proc == nil || s.info.Status == proto.Exited {
+		s.mu.Unlock()
+		return false
+	}
+	changed := false
+	member, proc, agent, runtime, inferred := s.foregroundProgramLocked()
 	if proc == "" && s.info.Process != "" {
 		// The program ended: its live reports go with it, and an agent's
 		// session is no more to resume.
@@ -415,6 +548,13 @@ func (s *pane) tick(now time.Time) bool {
 		s.info.Process, s.info.Agent, s.info.Runtime = proc, agent, runtime
 		s.seen, s.looked = "", false
 		changed = true
+	}
+	if proc != "" && s.info.AgentSession == nil && inferred != nil {
+		s.info.AgentSession = inferred
+		changed = true
+		if s.d != nil {
+			s.d.save()
+		}
 	}
 	// The shell's directory, every tick of the 400ms loop: a cd shows in
 	// the sidebar as soon as the session follows it (see follow).

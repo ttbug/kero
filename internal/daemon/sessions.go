@@ -158,7 +158,7 @@ func (d *Daemon) findPane(ref string) *pane {
 // the one that can only be the agent's, its only pane yet to tell a
 // session (or, of several, the only one in the agent's dir), else its
 // only pane; away tells it.
-func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) {
+func (d *Daemon) agentPane(pid int, agent, session, dir string) (found *pane, away bool) {
 	d.mu.Lock()
 	panes := make([]*pane, 0, len(d.panes))
 	for _, p := range d.panes {
@@ -166,22 +166,10 @@ func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) 
 	}
 	d.mu.Unlock()
 	byShell := make(map[int]*pane, len(panes))
-	var running, pending, inDir []*pane
 	for _, p := range panes {
 		p.mu.Lock()
-		if p.info.Status != proto.Exited {
-			if p.shellPID > 0 {
-				byShell[p.shellPID] = p
-			}
-			if p.info.Agent == agent {
-				running = append(running, p)
-				if p.info.AgentSession == nil {
-					pending = append(pending, p)
-					if dir != "" && p.info.WorkDir() == dir {
-						inDir = append(inDir, p)
-					}
-				}
-			}
+		if p.info.Status != proto.Exited && p.shellPID > 0 {
+			byShell[p.shellPID] = p
 		}
 		p.mu.Unlock()
 	}
@@ -191,17 +179,65 @@ func (d *Daemon) agentPane(pid int, agent, dir string) (found *pane, away bool) 
 		}
 		pid = procParent(pid)
 	}
-	switch {
-	case len(pending) == 1:
-		return pending[0], true
-	case len(pending) > 1:
-		if len(inDir) == 1 {
-			return inDir[0], true
+	var sameSession, running, runningInDir, pending, pendingInDir []*pane
+	for _, p := range panes {
+		p.mu.Lock()
+		if p.info.Status != proto.Exited {
+			if p.info.Agent == "" && p.proc != nil {
+				p.probeAgentLocked()
+			}
+			if p.info.Agent == agent {
+				running = append(running, p)
+				inDir := sameDir(dir, p.info.WorkDir())
+				if inDir {
+					runningInDir = append(runningInDir, p)
+				}
+				if session != "" && p.info.AgentSession != nil && p.info.AgentSession.Agent == agent && p.info.AgentSession.ID == session {
+					sameSession = append(sameSession, p)
+				}
+				if p.info.AgentSession == nil {
+					pending = append(pending, p)
+					if inDir {
+						pendingInDir = append(pendingInDir, p)
+					}
+				}
+			}
 		}
-	case len(running) == 1:
-		return running[0], true
+		p.mu.Unlock()
+	}
+	switch {
+	case len(sameSession) == 1:
+		return sameSession[0], true
+	case len(pending) == 1:
+		if dir == "" || len(pendingInDir) == 1 {
+			return pending[0], true
+		}
+	case len(pending) > 1:
+		if len(pendingInDir) == 1 {
+			return pendingInDir[0], true
+		}
+	case len(pending) == 0:
+		if dir != "" && len(runningInDir) == 1 {
+			return runningInDir[0], true
+		}
+		if dir == "" && len(running) == 1 {
+			return running[0], true
+		}
 	}
 	return nil, true
+}
+
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ca, cb := filepath.Clean(a), filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	ra, err1 := filepath.EvalSymlinks(ca)
+	rb, err2 := filepath.EvalSymlinks(cb)
+	return err1 == nil && err2 == nil && ra == rb
 }
 
 // sharedService tells a process of an agent's service that panes share:

@@ -26,6 +26,10 @@ import (
 // resume after a restart. It never fails the agent: outside Kero, or on
 // any trouble, it says nothing.
 func hookCmd(args []string) error {
+	return runHook(args, os.Stdin, os.Stdout)
+}
+
+func runHook(args []string, stdin io.Reader, stdout io.Writer) error {
 	agent := ""
 	if len(args) > 0 {
 		agent = args[0]
@@ -35,32 +39,60 @@ func hookCmd(args []string) error {
 	}
 	pane := os.Getenv("KERO_PANE")
 	var in struct {
-		Event   string `json:"hook_event_name"`
-		AgentID string `json:"agent_id"`   // set for Claude Code's subagents
-		Session string `json:"session_id"` // the agent's own
-		Cwd     string `json:"cwd"`
-		Source  string `json:"source"` // "startup", "resume", "clear", "compact"
+		Event          string   `json:"hook_event_name"`
+		EventCamel     string   `json:"hookEventName"`
+		AgentID        string   `json:"agent_id"`       // set for Claude Code's subagents
+		Session        string   `json:"session_id"`     // the agent's own
+		ConversationID string   `json:"conversationId"` // Antigravity's own
+		Cwd            string   `json:"cwd"`
+		WorkspacePaths []string `json:"workspacePaths"`
+		Source         string   `json:"source"` // "startup", "resume", "clear", "compact"
 	}
-	json.NewDecoder(io.LimitReader(os.Stdin, 1<<20)).Decode(&in)
-	if pane == "" || in.Event != "SessionStart" || in.AgentID != "" {
+	json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&in)
+	event := in.Event
+	if event == "" {
+		event = in.EventCamel
+	}
+	session := in.Session
+	if session == "" {
+		session = in.ConversationID
+	}
+	dir := in.Cwd
+	if dir == "" && len(in.WorkspacePaths) > 0 {
+		dir = in.WorkspacePaths[0]
+	}
+	emptyOut := func() error {
+		if agent == "antigravity" {
+			_, err := io.WriteString(stdout, "{}\n")
+			return err
+		}
 		return nil
 	}
-	if t := os.Getenv("CODEX_THREAD_ID"); t != "" && in.Session != "" && t != in.Session {
-		return nil // a Codex run by another agent in this pane, not the pane's
+	if event != "SessionStart" || in.AgentID != "" {
+		return emptyOut()
+	}
+	if pane == "" && (agent != "codex" || session == "") {
+		return emptyOut()
+	}
+	if t := os.Getenv("CODEX_THREAD_ID"); t != "" && session != "" && t != session {
+		return emptyOut() // a Codex run by another agent in this pane, not the pane's
 	}
 	sid, away := os.Getenv("KERO_SESSION"), false
 	c, err := client.Connect(true)
 	if err != nil {
+		if pane == "" {
+			return emptyOut()
+		}
 		c = nil
 	} else {
 		defer c.Close()
-		if in.Session != "" {
+		if session != "" {
 			// kerod tells the pane: the environment may be that of
 			// another, as when Codex's app server, which panes share,
 			// runs the hook.
 			var r proto.AgentSessionResult
-			if c.Call("pane.agentSession", proto.AgentSessionParams{PID: os.Getpid(), Agent: agent, Session: in.Session, Dir: in.Cwd}, &r) != nil {
-				return nil
+			if c.Call("pane.agentSession", proto.AgentSessionParams{PID: os.Getpid(), Agent: agent, Session: session, Dir: dir}, &r) != nil {
+				return emptyOut()
 			}
 			pane, sid, away = r.Pane, r.Session, r.Away
 		}
@@ -68,11 +100,20 @@ func hookCmd(args []string) error {
 			forgetAgentName(c, pane, sid)
 		}
 	}
+	ctx := hookContext(c, pane, sid, away)
+	if agent == "antigravity" {
+		out := map[string]any{
+			"injectSteps": []map[string]any{
+				{"systemMessage": map[string]string{"systemMessage": ctx}},
+			},
+		}
+		return json.NewEncoder(stdout).Encode(out)
+	}
 	out := map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName":     "SessionStart",
-		"additionalContext": hookContext(c, pane, sid, away),
+		"additionalContext": ctx,
 	}}
-	return json.NewEncoder(os.Stdout).Encode(out)
+	return json.NewEncoder(stdout).Encode(out)
 }
 
 // forgetAgentName drops the name an agent gave session sid, as a new
@@ -405,6 +446,167 @@ func (h agentHook) edit(add bool) error {
 	return writeFileAtomic(h.file, pretty.Bytes())
 }
 
+// antigravityHook manages Kero's SessionStart hook in Antigravity's
+// ~/.gemini/config/hooks.json, whose top-level keys name hooks and hold
+// flat SessionStart handler arrays.
+type antigravityHook struct {
+	file string
+}
+
+func (h antigravityHook) name() string { return "antigravity" }
+func (h antigravityHook) path() string { return h.file }
+func (h antigravityHook) command() string {
+	return (agentHook{agent: "antigravity"}).command()
+}
+func (h antigravityHook) ours(command string) bool {
+	return (agentHook{agent: "antigravity"}).ours(command)
+}
+
+func (h antigravityHook) state() string {
+	b, err := os.ReadFile(h.file)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "missing"
+		}
+		return "unreadable"
+	}
+	root, err := parseObject(b)
+	if err != nil {
+		return "unreadable"
+	}
+	state := "missing"
+	if err := h.each(root, func(command string) {
+		if command == h.command() {
+			state = "current"
+		} else if state == "missing" {
+			state = "outdated"
+		}
+	}); err != nil {
+		return "unreadable"
+	}
+	return state
+}
+
+func (h antigravityHook) each(root object, fn func(command string)) error {
+	for _, m := range root {
+		spec, err := parseObject(m.Val)
+		if err != nil {
+			return fmt.Errorf("%s: %s: %w", proto.ShortDir(h.file), m.Key, err)
+		}
+		raw := spec.get("SessionStart")
+		if raw == nil {
+			continue
+		}
+		var handlers []struct{ Type, Command string }
+		if err := json.Unmarshal(raw, &handlers); err != nil {
+			return fmt.Errorf("%s: %s.SessionStart: %w", proto.ShortDir(h.file), m.Key, err)
+		}
+		for _, hd := range handlers {
+			if (hd.Type == "" || hd.Type == "command") && h.ours(hd.Command) {
+				fn(hd.Command)
+			}
+		}
+	}
+	return nil
+}
+
+func (h antigravityHook) install() error {
+	linkCLI()
+	return h.edit(true)
+}
+
+func (h antigravityHook) remove() error {
+	if _, err := os.Stat(h.file); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return h.edit(false)
+}
+
+func (h antigravityHook) edit(add bool) error {
+	b, err := os.ReadFile(h.file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	root := object{}
+	if len(bytes.TrimSpace(b)) > 0 {
+		if root, err = parseObject(b); err != nil {
+			return fmt.Errorf("%s: %w", proto.ShortDir(h.file), err)
+		}
+	}
+	n, exact := 0, false
+	if err := h.each(root, func(command string) {
+		n++
+		exact = exact || command == h.command()
+	}); err != nil {
+		return err
+	}
+	if add && n == 1 && exact || !add && n == 0 {
+		return nil
+	}
+	kept := root[:0]
+	for _, m := range root {
+		spec, _ := parseObject(m.Val)
+		changed := false
+		if raw := spec.get("SessionStart"); raw != nil {
+			var handlers []json.RawMessage
+			json.Unmarshal(raw, &handlers)
+			orig := len(handlers)
+			handlers = slices.DeleteFunc(handlers, func(raw json.RawMessage) bool {
+				var hd struct{ Type, Command string }
+				json.Unmarshal(raw, &hd)
+				return (hd.Type == "" || hd.Type == "command") && h.ours(hd.Command)
+			})
+			if len(handlers) != orig {
+				changed = true
+				if len(handlers) > 0 {
+					spec = spec.set("SessionStart", marshal(handlers))
+				} else {
+					spec = spec.del("SessionStart")
+				}
+				m.Val = spec.marshal()
+			}
+		}
+		if changed && len(spec) == 0 {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	root = kept
+	if add {
+		handler := object{{"type", marshal("command")}, {"command", marshal(h.command())}, {"timeout", marshal(10)}}
+		updated := false
+		for i, m := range root {
+			if m.Key != "kero" {
+				continue
+			}
+			spec, _ := parseObject(m.Val)
+			var handlers []json.RawMessage
+			if raw := spec.get("SessionStart"); raw != nil {
+				json.Unmarshal(raw, &handlers)
+			}
+			handlers = append(handlers, handler.marshal())
+			spec = spec.set("SessionStart", marshal(handlers))
+			root[i].Val = spec.marshal()
+			updated = true
+			break
+		}
+		if !updated {
+			spec := object{{"SessionStart", marshal([]object{handler})}}
+			root = append(root, member{Key: "kero", Val: spec.marshal()})
+		}
+	}
+	out := root.marshal()
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, out, "", "  "); err != nil {
+		return err
+	}
+	pretty.WriteByte('\n')
+	if bytes.Equal(pretty.Bytes(), b) {
+		return nil
+	}
+	return writeFileAtomic(h.file, pretty.Bytes())
+}
+
 // agentPlugin is a plugin kero installs for an agent: files of its own,
 // in a directory the agent loads plugins from.
 type agentPlugin struct {
@@ -540,21 +742,25 @@ func agentHooks(agent string) []integration {
 		pig = filepath.Join(pigRoot, "agent")
 	}
 	opencode := filepath.Join(dirOf("XDG_CONFIG_HOME", ".config"), "opencode")
+	antigravityConfig := filepath.Join(home, ".gemini", "config")
+	antigravityCLI := filepath.Join(home, ".gemini", "antigravity-cli")
 	installed := func(dir string) bool {
 		st, err := os.Stat(dir)
 		return err == nil && st.IsDir()
 	}
 	all := []struct {
-		agent, dir string
-		it         integration
+		agent string
+		found bool
+		it    integration
 	}{
-		{"claude", claude, agentHook{"claude", filepath.Join(claude, "settings.json")}},
-		{"codebuddy", codebuddy, agentHook{"codebuddy", filepath.Join(codebuddy, "settings.json")}},
-		{"codex", codex, agentHook{"codex", filepath.Join(codex, "hooks.json")}},
-		{"pi", pi, agentPlugin{agent: "pi", dir: filepath.Join(pi, "extensions"), files: map[string]string{"kero.ts": "agents/pi.ts"}}},
-		{"omp", omp, agentPlugin{agent: "omp", dir: filepath.Join(omp, "extensions"), files: map[string]string{"kero.ts": "agents/pi.ts"}}},
-		{"pig", pig, agentPlugin{agent: "pig", dir: filepath.Join(pig, "extensions"), files: map[string]string{"kero.ts": "agents/pi.ts"}}},
-		{"opencode", opencode, agentPlugin{agent: "opencode", dir: filepath.Join(opencode, "plugins", "kero"), own: true, files: map[string]string{
+		{"claude", installed(claude), agentHook{"claude", filepath.Join(claude, "settings.json")}},
+		{"codebuddy", installed(codebuddy), agentHook{"codebuddy", filepath.Join(codebuddy, "settings.json")}},
+		{"codex", installed(codex), agentHook{"codex", filepath.Join(codex, "hooks.json")}},
+		{"antigravity", installed(antigravityConfig) || installed(antigravityCLI), antigravityHook{filepath.Join(antigravityConfig, "hooks.json")}},
+		{"pi", installed(pi), agentPlugin{agent: "pi", dir: filepath.Join(pi, "extensions"), files: map[string]string{"kero.ts": "agents/pi.ts"}}},
+		{"omp", installed(omp), agentPlugin{agent: "omp", dir: filepath.Join(omp, "extensions"), files: map[string]string{"kero.ts": "agents/pi.ts"}}},
+		{"pig", installed(pig), agentPlugin{agent: "pig", dir: filepath.Join(pig, "extensions"), files: map[string]string{"kero.ts": "agents/pi.ts"}}},
+		{"opencode", installed(opencode), agentPlugin{agent: "opencode", dir: filepath.Join(opencode, "plugins", "kero"), own: true, files: map[string]string{
 			"package.json": "agents/opencode/package.json", "index.js": "agents/opencode/index.js", "tui.js": "agents/opencode/tui.js",
 		}}},
 	}
@@ -567,13 +773,13 @@ func agentHooks(agent string) []integration {
 		case agent == "agents":
 			// The agents that share a skill directory: not Claude Code's
 			// and not CodeBuddy Code's, which have one of their own.
-			if a.agent != "claude" && a.agent != "codebuddy" && installed(a.dir) {
+			if a.agent != "claude" && a.agent != "codebuddy" && a.found {
 				out = append(out, a.it)
 			}
 		case agent == "":
 			// Every agent that is there, and Claude Code's, which Kero
 			// talks to most.
-			if a.agent == "claude" || installed(a.dir) {
+			if a.agent == "claude" || a.found {
 				out = append(out, a.it)
 			}
 		}

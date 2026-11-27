@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"bytes"
+	"encoding/json"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,6 +204,7 @@ func TestResumeCommand(t *testing.T) {
 		{"claude", "13b997c3-f8b3-4b3e-bb8a-ca1b5d1b9787", "claude --resume 13b997c3-f8b3-4b3e-bb8a-ca1b5d1b9787"},
 		{"codebuddy", "13b997c3-f8b3-4b3e-bb8a-ca1b5d1b9787", "codebuddy --resume 13b997c3-f8b3-4b3e-bb8a-ca1b5d1b9787"},
 		{"codex", "019a2b3c-4d5e", "codex resume 019a2b3c-4d5e"},
+		{"antigravity", "ec33ebf9-0cba-4100-8142-c61503f6c587", "agy --resume ec33ebf9-0cba-4100-8142-c61503f6c587"},
 		{"pi", "0f3c2a1b-8e9d", "pi --session 0f3c2a1b-8e9d"},
 		{"omp", "01a1a1cc-d32d", "omp --session 01a1a1cc-d32d"},
 		{"pig", "02b2b2dd-e43e", "pig --session 02b2b2dd-e43e"},
@@ -245,27 +249,29 @@ func TestAgentPane(t *testing.T) {
 		}
 		return p.info.ID
 	}
-	check := func(what string, pid int, dir, want string, wantAway bool) {
+	check := func(what string, pid int, session, dir, want string, wantAway bool) {
 		t.Helper()
-		p, away := d.agentPane(pid, "codex", dir)
+		p, away := d.agentPane(pid, "codex", session, dir)
 		if name(p) != want || away != wantAway {
 			t.Errorf("%s: %s away=%v, want %s away=%v", what, name(p), away, want, wantAway)
 		}
 	}
 
 	a := add("a", "codex", "/repo", true)
-	check("its only pane, telling a new session", 0, "", "a", true)
-	add("b", "codex", "/repo", false)
-	check("its only pane yet to tell", 0, "", "b", true)
+	check("its only pane, telling a new session", 0, "", "", "a", true)
+	check("external codex in another dir must not hijack a", 0, "ext-1", "/elsewhere", "none", true)
+	b := add("b", "codex", "/repo", false)
+	check("its only pane yet to tell", 0, "", "", "b", true)
+	check("external codex in another dir must not claim pending b", 0, "ext-2", "/elsewhere", "none", true)
 	add("c", "codex", "/other", false)
-	check("of two yet to tell, the one in its dir", 0, "/other", "c", true)
-	check("two yet to tell, in a dir neither is in", 0, "/worktree", "none", true)
+	check("of two yet to tell, the one in its dir", 0, "", "/other", "c", true)
+	check("two yet to tell, in a dir neither is in", 0, "", "/worktree", "none", true)
 	add("d", "claude", "/repo", false)
-	check("two yet to tell, no dir", 0, "", "none", true)
+	check("two yet to tell, no dir", 0, "", "", "none", true)
 
 	// Run under a pane's shell: that pane, whatever the others.
 	a.shellPID = os.Getppid()
-	check("under a's shell", os.Getpid(), "", "a", false)
+	check("under a's shell", os.Getpid(), "", "", "a", false)
 
 	// Under Codex's app server that panes share, which a's Codex started
 	// under a's shell: not a, which has its session, but the one pane yet
@@ -290,7 +296,17 @@ func TestAgentPane(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	a.shellPID = os.Getpid()
-	check("under the app server a's Codex started", server.Process.Pid, "", "b", true)
+	check("under the app server a's Codex started", server.Process.Pid, "", "", "b", true)
+
+	// With two running Codex panes in different dirs, matching by session ID
+	// (resume/compact) and by dir (/new) both disambiguate cleanly.
+	b.mu.Lock()
+	b.info.Dir = "/other"
+	b.info.AgentSession = &proto.AgentSession{Agent: "codex", ID: "old-b"}
+	b.mu.Unlock()
+	check("two running panes, resume matches same session", server.Process.Pid, "old-b", "/elsewhere", "b", true)
+	check("two running panes, /new matches by dir", server.Process.Pid, "new-b", "/other", "b", true)
+	check("two running panes, external dir matches none", server.Process.Pid, "ext-3", "/elsewhere", "none", true)
 }
 
 // A restart that failed leaves the pane as it was: it does not say it
@@ -577,4 +593,239 @@ func TestPaneCodexTitleTracking(t *testing.T) {
 		t.Fatalf("tick synced AgentTitle = (%q, %d)", tp.info.AgentTitle, tp.agentTitleKind)
 	}
 	tp.mu.Unlock()
+}
+
+func TestPaneAgentSessionTitleRetention(t *testing.T) {
+	d := testDaemon(t)
+	p, err := newPane(d, "s1", proto.Pane{
+		ID:     "p1",
+		Dir:    d.dir,
+		Agent:  "antigravity",
+		Status: proto.Idle,
+		Cols:   80,
+		Rows:   24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.term.Close() })
+	p.mu.Lock()
+	p.info.AgentTitle = "首条提问标题"
+	p.agentTitleKind = agentTitlePrompt
+	p.mu.Unlock()
+	d.sessions = []*session{{id: "s1", project: "pr", panes: []*pane{p}}}
+	d.panes["p1"] = p
+
+	call := func(agent, sid string) {
+		t.Helper()
+		raw, _ := json.Marshal(proto.AgentSessionParams{PID: 0, Agent: agent, Session: sid, Dir: d.dir})
+		if _, err := d.call(nil, "pane.agentSession", raw); err != nil {
+			t.Fatalf("pane.agentSession(%s, %s): %v", agent, sid, err)
+		}
+	}
+
+	// First SessionStart for the same agent preserves the prompt-derived title.
+	call("antigravity", "conv-1")
+	p.mu.Lock()
+	if p.info.AgentTitle != "首条提问标题" || p.agentTitleKind != agentTitlePrompt {
+		p.mu.Unlock()
+		t.Fatalf("first SessionStart cleared prompt title: (%q, %d)", p.info.AgentTitle, p.agentTitleKind)
+	}
+	p.mu.Unlock()
+
+	// Switching to a different conversation resets the old title.
+	call("antigravity", "conv-2")
+	p.mu.Lock()
+	if p.info.AgentTitle != "" || p.agentTitleKind != agentTitleNone {
+		p.mu.Unlock()
+		t.Fatalf("new conversation kept old title: (%q, %d)", p.info.AgentTitle, p.agentTitleKind)
+	}
+	p.mu.Unlock()
+}
+
+func TestProbeAgentLockedClearsTickRace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX sh")
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not installed")
+	}
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexBin := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(codexBin, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := testDaemon(t)
+	p, err := newPane(d, "s1", proto.Pane{ID: "p1", Dir: dir, Status: proto.Idle, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.close)
+	proc, err := startPTY(ptyOptions{
+		Path: shell,
+		Args: []string{"sh", "-c", `set -m; "$1"`, "sh", codexBin},
+		Dir:  dir,
+		Env:  []string{"TERM=xterm-256color"},
+		Cols: 80,
+		Rows: 24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { proc.Kill() })
+	go p.pump(proc)
+	p.mu.Lock()
+	p.proc = proc
+	p.shellPID = proc.PID()
+	p.mu.Unlock()
+	d.panes["p1"] = p
+
+	// Before any tick() runs, wait until codex is foreground in the PTY, then
+	// verify agentPane probes it immediately.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		matched, away := d.agentPane(0, "codex", "sess-fast", dir)
+		if matched == p && away {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("agentPane did not probe foreground codex before tick")
+}
+
+func TestResumeSessionFromArgs(t *testing.T) {
+	cases := []struct {
+		name  string
+		agent string
+		args  []string
+		want  string
+	}{
+		{"codex plain", "codex", []string{"codex", "resume", "019a-codex"}, "019a-codex"},
+		{"codex node wrapper", "codex", []string{"node", "/usr/lib/node_modules/@openai/codex/bin/codex.js", "resume", "019a-codex"}, "019a-codex"},
+		{"codex leading flags", "codex", []string{"codex", "-m", "gpt-5", "--cd", "/repo", "resume", "--all", "019a-codex"}, "019a-codex"},
+		{"codex last with prompt", "codex", []string{"codex", "resume", "--last", "fix"}, ""},
+		{"codex new session", "codex", []string{"codex", "--cd", "/repo"}, ""},
+		{"antigravity resume", "antigravity", []string{"agy", "--resume", "conv-1"}, "conv-1"},
+		{"antigravity short r", "antigravity", []string{"agy", "-r", "conv-2"}, "conv-2"},
+		{"antigravity conversation eq", "antigravity", []string{"agy", "--conversation=conv-3"}, "conv-3"},
+		{"claude resume", "claude", []string{"claude", "--resume", "claude-1"}, "claude-1"},
+		{"claude session-id", "claude", []string{"claude", "--session-id", "claude-2"}, "claude-2"},
+		{"codebuddy short r", "codebuddy", []string{"codebuddy", "-r", "cb-1"}, "cb-1"},
+		{"pi session", "pi", []string{"pi", "--session", "pi-1"}, "pi-1"},
+		{"opencode session", "opencode", []string{"opencode", "--session=oc-1"}, "oc-1"},
+		{"invalid id", "codex", []string{"codex", "resume", "../bad"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resumeSessionFromArgs(tc.agent, tc.args)
+			if tc.want == "" {
+				if got != nil {
+					t.Fatalf("got %+v, want nil", got)
+				}
+				return
+			}
+			if got == nil || got.Agent != tc.agent || got.ID != tc.want {
+				t.Fatalf("got %+v, want (%s, %s)", got, tc.agent, tc.want)
+			}
+		})
+	}
+}
+
+func TestTickInfersResumeSessionAndPreservesHookUpdate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX sh")
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not installed")
+	}
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexBin := filepath.Join(binDir, "codex")
+	if err := os.WriteFile(codexBin, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := testDaemon(t)
+	p, err := newPane(d, "s1", proto.Pane{ID: "p1", Dir: dir, Status: proto.Idle, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.close)
+	proc, err := startPTY(ptyOptions{
+		Path: shell,
+		Args: []string{"sh", "-c", `set -m; "$1" resume 019a-resumed`, "sh", codexBin},
+		Dir:  dir,
+		Env:  []string{"TERM=xterm-256color"},
+		Cols: 80,
+		Rows: 24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { proc.Kill() })
+	go p.pump(proc)
+	p.mu.Lock()
+	p.proc = proc
+	p.shellPID = proc.PID()
+	p.mu.Unlock()
+	d.sessions = []*session{{id: "s1", project: "pr", panes: []*pane{p}}}
+	d.panes["p1"] = p
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		p.tick(time.Now())
+		p.mu.Lock()
+		as := p.info.AgentSession
+		p.mu.Unlock()
+		if as != nil {
+			if as.Agent != "codex" || as.ID != "019a-resumed" {
+				t.Fatalf("inferred AgentSession = %+v", as)
+			}
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	p.mu.Lock()
+	if p.info.AgentSession == nil {
+		p.mu.Unlock()
+		t.Fatal("tick did not infer AgentSession from codex resume args")
+	}
+	p.mu.Unlock()
+
+	raw, _ := json.Marshal(proto.AgentSessionParams{Agent: "codex", Session: "019a-cleared", Dir: dir})
+	if _, err := d.call(nil, "pane.agentSession", raw); err != nil {
+		t.Fatalf("pane.agentSession: %v", err)
+	}
+	p.tick(time.Now())
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.info.AgentSession == nil || p.info.AgentSession.ID != "019a-cleared" {
+		t.Fatalf("tick overwrote hook-reported AgentSession: %+v", p.info.AgentSession)
+	}
+}
+
+func TestPaneAgentSessionLogsUnmatched(t *testing.T) {
+	var logs bytes.Buffer
+	d := testDaemon(t)
+	d.log = log.New(&logs, "", 0)
+
+	raw, _ := json.Marshal(proto.AgentSessionParams{PID: 1234, Agent: "codex", Session: "secret-conv-id", Dir: "/tmp/nope"})
+	if _, err := d.call(nil, "pane.agentSession", raw); err == nil {
+		t.Fatal("expected unmatched error")
+	}
+	out := logs.String()
+	if !strings.Contains(out, "pane.agentSession unmatched") || !strings.Contains(out, `agent="codex"`) {
+		t.Fatalf("unexpected log output: %q", out)
+	}
+	if strings.Contains(out, "secret-conv-id") || strings.Contains(out, "/tmp/nope") {
+		t.Fatalf("log leaked session ID or path: %q", out)
+	}
 }

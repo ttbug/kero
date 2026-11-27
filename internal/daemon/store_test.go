@@ -290,7 +290,7 @@ func TestRestoreAgentTitleKind(t *testing.T) {
 	rp4 := d4.restorePane("s2", savedPane{
 		ID:             "p4",
 		Dir:            d4.dir,
-		Agent:          &proto.AgentSession{Agent: "antigravity", ID: "abc"},
+		Agent:          &proto.AgentSession{Agent: "vim", ID: "abc"},
 		AgentTitle:     "should not restore",
 		AgentTitleKind: agentTitlePrompt,
 		Cols:           80,
@@ -306,6 +306,28 @@ func TestRestoreAgentTitleKind(t *testing.T) {
 		t.Fatalf("unsupported resume kept AgentTitle = (%q, %d)", rp4.info.AgentTitle, rp4.agentTitleKind)
 	}
 	rp4.mu.Unlock()
+
+	// Antigravity sessions restore both AgentSession and AgentTitle.
+	rpAgy := d4.restorePane("s2b", savedPane{
+		ID:             "p4b",
+		Dir:            d4.dir,
+		Agent:          &proto.AgentSession{Agent: "antigravity", ID: "ec33ebf9-0cba-4100-8142-c61503f6c587"},
+		AgentTitle:     "恢复 Antigravity 会话",
+		AgentTitleKind: agentTitlePrompt,
+		Cols:           80,
+		Rows:           24,
+	}, "now", true)
+	if rpAgy == nil {
+		t.Fatal("rpAgy was nil")
+	}
+	t.Cleanup(rpAgy.close)
+	rpAgy.mu.Lock()
+	if rpAgy.info.AgentSession == nil || rpAgy.info.AgentSession.Agent != "antigravity" ||
+		rpAgy.info.AgentTitle != "恢复 Antigravity 会话" || rpAgy.agentTitleKind != agentTitlePrompt {
+		rpAgy.mu.Unlock()
+		t.Fatalf("antigravity restored = (%+v, %q, %d)", rpAgy.info.AgentSession, rpAgy.info.AgentTitle, rpAgy.agentTitleKind)
+	}
+	rpAgy.mu.Unlock()
 
 	rp5 := d4.restorePane("s3", savedPane{
 		ID:             "p5",

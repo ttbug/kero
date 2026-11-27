@@ -380,14 +380,21 @@ func (d *Daemon) call(c *controlConn, method string, raw json.RawMessage) (any, 
 		}
 		as := &proto.AgentSession{Agent: p.Agent, ID: p.Session}
 		if resumeCommand(as) == nil {
+			if d.log != nil {
+				d.log.Printf("pane.agentSession rejected: agent=%q (invalid or unsupported)", p.Agent)
+			}
 			return nil, fmt.Errorf("no agent session %q of %q", p.Session, p.Agent)
 		}
-		pn, away := d.agentPane(p.PID, p.Agent, p.Dir)
+		pn, away := d.agentPane(p.PID, p.Agent, p.Session, p.Dir)
 		if pn == nil {
+			if d.log != nil {
+				d.log.Printf("pane.agentSession unmatched: agent=%q pid=%d hasDir=%t", p.Agent, p.PID, p.Dir != "")
+			}
 			return nil, fmt.Errorf("no pane runs %s session %q", p.Agent, p.Session)
 		}
 		pn.mu.Lock()
-		if pn.info.AgentSession == nil || *pn.info.AgentSession != *as {
+		if pn.info.AgentSession != nil && *pn.info.AgentSession != *as ||
+			pn.info.AgentSession == nil && (pn.info.Agent != as.Agent || pn.agentTitleKind != agentTitlePrompt) {
 			pn.resetAgentTitleLocked()
 		}
 		pn.info.AgentSession = as

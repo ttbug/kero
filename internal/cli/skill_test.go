@@ -243,7 +243,55 @@ func TestSkillUnknownAgent(t *testing.T) {
 	if err := skillCmd([]string{"status", "--agent", "codex"}); err != nil {
 		t.Errorf("codex: %v", err)
 	}
+	if err := skillCmd([]string{"status", "--agent", "antigravity"}); err != nil {
+		t.Errorf("antigravity: %v", err)
+	}
 	if err := skillCmd([]string{"status", "--agent", "claude"}); err != nil {
 		t.Errorf("claude: %v", err)
+	}
+}
+
+func TestAntigravitySkillAndHook(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("KERO_HOME", filepath.Join(home, "kero"))
+	for _, env := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR", "PI_CONFIG_DIR", "PIG_HOME", "PIG_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "CODEBUDDY_CONFIG_DIR"} {
+		t.Setenv(env, "")
+	}
+
+	if dir := skillDirs("antigravity")["agents"]; dir != filepath.Join(home, ".agents", "skills", "kero") {
+		t.Fatalf("skillDirs(antigravity) = %q", dir)
+	}
+	hooks := hooksFor("antigravity")
+	if len(hooks) != 1 || hooks[0].name() != "antigravity" {
+		t.Fatalf("hooksFor(antigravity) = %+v", hooks)
+	}
+	wantPath := filepath.Join(home, ".gemini", "config", "hooks.json")
+	if hooks[0].path() != wantPath {
+		t.Fatalf("antigravity hook path = %q, want %q", hooks[0].path(), wantPath)
+	}
+
+	hasAgent := func(arg string) bool {
+		for _, it := range agentHooks(arg) {
+			if it.name() == "antigravity" {
+				return true
+			}
+		}
+		return false
+	}
+	if hasAgent("") || hasAgent("agents") {
+		t.Fatal("antigravity included before ~/.gemini/config or ~/.gemini/antigravity-cli exists")
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".gemini", "antigravity-cli"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !hasAgent("") || !hasAgent("agents") {
+		t.Fatal("antigravity missing when ~/.gemini/antigravity-cli exists")
+	}
+	if err := skillCmd([]string{"setup", "--agent", "antigravity"}); err != nil {
+		t.Fatalf("setup --agent antigravity: %v", err)
+	}
+	if hooks[0].state() != "current" {
+		t.Fatalf("hook state after setup = %s, want current", hooks[0].state())
 	}
 }
