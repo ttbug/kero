@@ -1051,6 +1051,14 @@ func notifyTarget(st proto.State, f *flags) (target, string, error) {
 	return t, body, err
 }
 
+func installedServiceForControl() (bool, error) {
+	installed, err := service.CheckInstalled()
+	if err != nil {
+		return false, fmt.Errorf("checking kerod's service: %w", err)
+	}
+	return installed, nil
+}
+
 func daemonCmd(args []string, host string) error {
 	sub := "status"
 	if len(args) > 0 {
@@ -1108,7 +1116,9 @@ func daemonCmd(args []string, host string) error {
 	case "stop", "restart":
 		// The service's manager stops and restarts it, but Task
 		// Scheduler, whose kerod stops as any, and starts with the task.
-		if service.Installed() {
+		if installed, err := installedServiceForControl(); err != nil {
+			return err
+		} else if installed {
 			var err error
 			if sub == "stop" {
 				err = service.Stop()
@@ -1281,6 +1291,12 @@ func remoteDaemonCmd(sub string, args []string, host string) error {
 func StopDaemon() error {
 	pid, err := client.DaemonPID()
 	if err != nil {
+		if errors.Is(err, client.ErrNotAsked) {
+			// The socket is there, but it could not be asked: another
+			// user's kerod, or one whose folder the user may not look
+			// into. It is there, so saying it stopped would be a lie.
+			return err
+		}
 		// The socket answered, but no hello came: a daemon is there, and
 		// it did not say hello — its pid is unknown, so it cannot be
 		// stopped, and saying it stopped would be a lie.
